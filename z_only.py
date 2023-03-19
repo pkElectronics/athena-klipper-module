@@ -13,11 +13,11 @@ class ZonlyKinematics:
         # Setup axis rails
         self.rails = [stepper.LookupMultiRail(config.getsection('stepper_' + n))
                       for n in 'z']			
-    # self.rails.append(self.rails[0])
-    # self.rails.append(self.rails[0])
+        # self.rails.append(self.rails[0])
+        # self.rails.append(self.rails[0])
 
-    for rail, axis in zip(self.rails, 'z'):
-        rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
+        for rail, axis in zip(self.rails, 'z'):
+            rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
 
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
@@ -104,5 +104,6 @@ class ZonlyKinematics:
             'axis_maximum': self.axes_max
         }
 
-    def load_kinematics(toolhead, config):
-       return ZonlyKinematics(toolhead, config)
+
+def load_kinematics(toolhead, config):
+    return ZonlyKinematics(toolhead, config)
