@@ -17,10 +17,12 @@ class ZonlyKinematics:
     # self.rails.append(self.rails[0])
 
     for rail, axis in zip(self.rails, 'z'):
-            rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
+        rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
+
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
             toolhead.register_step_generator(s.generate_steps)
+
         self.printer.register_event_handler("stepper_enable:motor_off",
                                             self._motor_off)
         # Setup boundary checks
