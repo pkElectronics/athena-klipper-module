@@ -60,12 +60,12 @@ class PrinterFssProbe:
 
     def _handle_homing_move_begin(self, hmove):
         if self.mcu_probe in hmove.get_mcu_endstops():
-            #self.mcu_probe.probe_prepare(hmove)
+            # self.mcu_probe.probe_prepare(hmove)
             return
 
     def _handle_homing_move_end(self, hmove):
         if self.mcu_probe in hmove.get_mcu_endstops():
-            #self.mcu_probe.probe_finish(hmove)
+            # self.mcu_probe.probe_finish(hmove)
             return
 
     def _handle_home_rails_begin(self, homing_state, rails):
@@ -112,7 +112,7 @@ class PrinterFssProbe:
         pos = toolhead.get_position()
         opos = pos[2]
         pos[2] += amount
-        epos = [pos[0],pos[1],pos[2]]
+        epos = [pos[0], pos[1], pos[2]]
         try:
             epos = phoming.probing_move(self.mcu_probe, pos, speed)
 
@@ -136,12 +136,10 @@ class PrinterFssProbe:
     def _move(self, coord, speed):
         self.printer.lookup_object('toolhead').manual_move(coord, speed)
 
-
     def run_probe(self, gcmd):
-      #  speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
+        # speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-
 
         must_notify_multi_probe = not self.multi_probe_pending
         if must_notify_multi_probe:
@@ -175,11 +173,12 @@ class PrinterFssProbe:
         return {'last_query': self.last_state,
                 'last_z_result': self.last_z_result}
 
+
 class FssProbeEndstopWrapper:
     def __init__(self, config):
         self.printer = config.get_printer()
 
- #       # Create an "endstop" object to handle the probe pin
+        # Create an "endstop" object to handle the probe pin
         ppins = self.printer.lookup_object('pins')
         pin = config.get('pin')
         pin_params = ppins.lookup_pin(pin, can_invert=True, can_pullup=True)
@@ -196,6 +195,7 @@ class FssProbeEndstopWrapper:
         self.query_endstop = self.mcu_endstop.query_endstop
         # multi probes state
         self.multi = 'OFF'
+
     def _handle_mcu_identify(self):
         kin = self.printer.lookup_object('toolhead').get_kinematics()
         for stepper in kin.get_steppers():

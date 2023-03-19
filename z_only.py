@@ -6,16 +6,17 @@
 import logging
 import stepper
 
+
 class ZonlyKinematics:
     def __init__(self, toolhead, config):
         self.printer = config.get_printer()
         # Setup axis rails
         self.rails = [stepper.LookupMultiRail(config.getsection('stepper_' + n))
                       for n in 'z']			
-	#self.rails.append(self.rails[0])
-  	#self.rails.append(self.rails[0])
-  	 
-	for rail, axis in zip(self.rails, 'z'):
+    # self.rails.append(self.rails[0])
+    # self.rails.append(self.rails[0])
+
+    for rail, axis in zip(self.rails, 'z'):
             rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
@@ -80,7 +81,7 @@ class ZonlyKinematics:
             if (move.axes_d[i] and (end_pos[i] < self.limits[i][0] or end_pos[i] > self.limits[i][1])):
                 if self.limits[i][0] > self.limits[i][1]:
                     raise move.move_error("Must home axis first "+str(i))
-            	raise move.move_error()
+                raise move.move_error()
 
     def check_move(self, move):
         limits = self.limits
@@ -92,13 +93,14 @@ class ZonlyKinematics:
         z_ratio = move.move_d / abs(move.axes_d[2])
         move.limit_speed(
             self.max_z_velocity * z_ratio, self.max_z_accel * z_ratio)
+
     def get_status(self, eventtime):
         axes = [a for a, (l, h) in zip("z", self.limits) if l <= h]
         return {
             'homed_axes': "".join(axes),
             'axis_minimum': self.axes_min,
-            'axis_maximum': self.axes_max,
+            'axis_maximum': self.axes_max
         }
 
-def load_kinematics(toolhead, config):
-    return ZonlyKinematics(toolhead, config)
+    def load_kinematics(toolhead, config):
+       return ZonlyKinematics(toolhead, config)
