@@ -31,6 +31,13 @@ class ZonlyKinematics:
                                               above=0., maxval=max_velocity)
         self.max_z_accel = config.getfloat('max_z_accel', max_accel,
                                            above=0., maxval=max_accel)
+
+        self.peel_accel = config.getfloat('peel_accel', max_accel,
+                                           above=0., maxval=max_accel)
+
+        self.dip_accel = config.getfloat('dip_accel', max_accel,
+                                          above=0., maxval=max_accel)
+
         self.limits = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
         ranges = [r.get_range() for r in self.rails]
         self.axes_min = toolhead.Coord(0, 0, ranges[0][0], e=0.)
@@ -49,9 +56,11 @@ class ZonlyKinematics:
             rail.set_position(newpos)
             if 2 in homing_axes:
                 self.limits[2] = rail.get_range()
+
     def note_z_not_homed(self):
         # Helper for Safe Z Home
         self.limits[2] = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
+
     def _home_axis(self, homing_state, axis, rail):
         # Determine movement
         position_min, position_max = rail.get_range()
@@ -80,7 +89,7 @@ class ZonlyKinematics:
     def _check_endstops(self, move):
         end_pos = move.end_pos
         for i in (0, 1, 2):
-            if (move.axes_d[i] and (end_pos[i] < self.limits[i][0] or end_pos[i] > self.limits[i][1])):
+            if move.axes_d[i] and (end_pos[i] < self.limits[i][0] or end_pos[i] > self.limits[i][1]):
                 if self.limits[i][0] > self.limits[i][1]:
                     raise move.move_error("Must home axis first "+str(i))
                 raise move.move_error()
@@ -93,8 +102,13 @@ class ZonlyKinematics:
         # Move with Z - update velocity and accel for slower Z axis
         self._check_endstops(move)
         z_ratio = move.move_d / abs(move.axes_d[2])
-        move.limit_speed(
-            self.max_z_velocity * z_ratio, self.max_z_accel * z_ratio)
+
+        if move.start_pos[2] > move.end_pos[2]:  # downwards move
+            move.limit_speed(
+                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio)
+        else:
+            move.limit_speed(
+                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio)
 
     def get_status(self, eventtime):
         axes = [a for a, (l, h) in zip("z", self.limits) if l <= h]

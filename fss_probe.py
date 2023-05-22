@@ -39,57 +39,21 @@ class PrinterFssProbe:
 
         # Register z_virtual_endstop pin
         self.printer.lookup_object('pins').register_chip('fss_probe', self)
-        # Register homing event handlers
-        self.printer.register_event_handler("homing:homing_move_begin",
-                                            self._handle_homing_move_begin)
-        self.printer.register_event_handler("homing:homing_move_end",
-                                            self._handle_homing_move_end)
-        self.printer.register_event_handler("homing:home_rails_begin",
-                                            self._handle_home_rails_begin)
-        self.printer.register_event_handler("homing:home_rails_end",
-                                            self._handle_home_rails_end)
-        self.printer.register_event_handler("gcode:command_error",
-                                            self._handle_command_error)
+
         # Register PROBE/QUERY_PROBE commands
         self.gcode = self.printer.lookup_object('gcode')
-        self.gcode.register_command('MOVE_PLATE_FSS', self.cmd_MOVE_PLATE_FSS,
+
+        self.gcode.register_command('MOVE_PLATE_FSS', self.cmd_ATHENA_PROBE_UPWARDS,
                                     desc=self.cmd_PROBE_help)
 
-        self.gcode.register_command('QUERY_FSS', self.cmd_QUERY_FSS,                
+        self.gcode.register_command('ATHENA_PROBE_UPWARDS', self.cmd_ATHENA_PROBE_UPWARDS,
+                                    desc=self.cmd_PROBE_help)
+
+        self.gcode.register_command('ATHENA_PROBE_DOWNWARDS', self.cmd_ATHENA_PROBE_DOWNWARDS,
+                                    desc=self.cmd_PROBE_help)
+
+        self.gcode.register_command('QUERY_FSS', self.cmd_QUERY_FSS,
                                     desc=self.cmd_QUERY_FSS_help)
-
-    def _handle_homing_move_begin(self, hmove):
-        if self.mcu_probe in hmove.get_mcu_endstops():
-            # self.mcu_probe.probe_prepare(hmove)
-            return
-
-    def _handle_homing_move_end(self, hmove):
-        if self.mcu_probe in hmove.get_mcu_endstops():
-            # self.mcu_probe.probe_finish(hmove)
-            return
-
-    def _handle_home_rails_begin(self, homing_state, rails):
-        endstops = [es for rail in rails for es, name in rail.get_endstops()]
-        if self.mcu_probe in endstops:
-            self.multi_probe_begin()
-
-    def _handle_home_rails_end(self, homing_state, rails):
-        endstops = [es for rail in rails for es, name in rail.get_endstops()]
-        if self.mcu_probe in endstops:
-            self.multi_probe_end()
-
-    def _handle_command_error(self):
-        try:
-            self.multi_probe_end()
-        except:
-            logging.exception("Multi-probe end")
-
-    def multi_probe_begin(self):
-        self.multi_probe_pending = True
-
-    def multi_probe_end(self):
-        if self.multi_probe_pending:
-            self.multi_probe_pending = False
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -108,6 +72,7 @@ class PrinterFssProbe:
         curtime = self.printer.get_reactor().monotonic()
         if 'z' not in toolhead.get_status(curtime)['homed_axes']:
             raise self.printer.command_error("Must home before probe")
+
         phoming = self.printer.lookup_object('homing')
         pos = toolhead.get_position()
         opos = pos[2]
@@ -133,35 +98,41 @@ class PrinterFssProbe:
 
         return epos[:3]
 
-    def _move(self, coord, speed):
-        self.printer.lookup_object('toolhead').manual_move(coord, speed)
-
-    def run_probe(self, gcmd):
-        # speed = gcmd.get_float("PROBE_SPEED", self.speed, above=0.)
+    def run_probe_upwards(self, gcmd):
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
 
-        must_notify_multi_probe = not self.multi_probe_pending
-        if must_notify_multi_probe:
-            self.multi_probe_begin()
-
-        # Probe position
         pos = self._probe(lift_speed, lift_amount)
-        # Check samples tolerance
 
-        if must_notify_multi_probe:
-            self.multi_probe_end()
-        # Calculate and return result
+        return pos
+
+    def run_probe_downwards(self, gcmd):
+        lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+        toolhead = self.printer.lookup_object('toolhead')
+        pos = toolhead.get_position()
+
+        pos = self._probe(lift_speed, -1*pos[2]) # probe to zero
+
+        pos = toolhead.get_position()
+
         return pos
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
 
-    def cmd_MOVE_PLATE_FSS(self, gcmd):
-        pos = self.run_probe(gcmd)
+    def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
+        pos = self.run_probe_upwards(gcmd)
+        gcmd.respond_raw("Z_move_complete")
+        gcmd.respond_info("Result is z=%.6f" % (pos[2],))
+        self.last_z_result = pos[2]
+
+    def cmd_ATHENA_PROBE_DOWNWARDS(self, gcmd):
+        pos = self.run_probe_downwards(gcmd)
+        gcmd.respond_raw("Z_move_complete")
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
+
     def cmd_QUERY_FSS(self, gcmd):
         toolhead = self.printer.lookup_object('toolhead')
         print_time = toolhead.get_last_move_time()
