@@ -38,6 +38,12 @@ class ZonlyKinematics:
         self.dip_accel = config.getfloat('dip_accel', max_accel,
                                           above=0., maxval=max_accel)
 
+        self.peel_deccel = config.getfloat('peel_deccel', max_accel,
+                                           above=0., maxval=max_accel)
+
+        self.dip_deccel = config.getfloat('dip_deccel', max_accel,
+                                          above=0., maxval=max_accel)
+
         self.limits = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
         ranges = [r.get_range() for r in self.rails]
         self.axes_min = toolhead.Coord(0, 0, ranges[0][0], e=0.)
@@ -105,10 +111,10 @@ class ZonlyKinematics:
 
         if move.start_pos[2] > move.end_pos[2]:  # downwards move
             move.limit_speed(
-                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio)
+                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio, self.dip_deccel * z_ratio)
         else:
             move.limit_speed(
-                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio)
+                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio, self.peel_deccel * z_ratio)
 
     def get_status(self, eventtime):
         axes = [a for a, (l, h) in zip("z", self.limits) if l <= h]

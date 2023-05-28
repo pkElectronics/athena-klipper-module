@@ -7,6 +7,7 @@
 import logging
 import pins
 from . import manual_probe
+import gcode
 
 HINT_TIMEOUT = """
 If the probe did not move far enough to trigger, then
@@ -50,6 +51,9 @@ class PrinterFssProbe:
                                     desc=self.cmd_PROBE_help)
 
         self.gcode.register_command('ATHENA_PROBE_DOWNWARDS', self.cmd_ATHENA_PROBE_DOWNWARDS,
+                                    desc=self.cmd_PROBE_help)
+
+        self.gcode.register_command('ATHENA_MOVE', self.cmd_ATHENA_PROBE_DOWNWARDS,
                                     desc=self.cmd_PROBE_help)
 
         self.gcode.register_command('QUERY_FSS', self.cmd_QUERY_FSS,
@@ -118,6 +122,10 @@ class PrinterFssProbe:
         return pos
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
+
+    def cmd_ATHENA_MOVE(self, gcmd):
+        cmd_G1(gcmd)
+        gcmd.respond_raw("Z_move_complete")
 
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
         pos = self.run_probe_upwards(gcmd)
