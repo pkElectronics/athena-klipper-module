@@ -97,6 +97,11 @@ class PrinterFssProbe:
                 epos = toolhead.get_position()
                 epos[2] = amount
 
+            elif "Probe triggered prior to movement" in reason:
+                toolhead.move(pos, speed)
+                epos = toolhead.get_position()
+                epos[2] = amount
+
             else:
                 raise self.printer.command_error(reason)
 
@@ -125,17 +130,17 @@ class PrinterFssProbe:
 
     def cmd_ATHENA_MOVE(self, gcmd):
         cmd_G1(gcmd)
-        gcmd.respond_raw("Z_move_complete")
+        gcmd.respond_raw("Z_move_comp")
 
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
         pos = self.run_probe_upwards(gcmd)
-        gcmd.respond_raw("Z_move_complete")
+        gcmd.respond_raw("Z_move_comp")
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
 
     def cmd_ATHENA_PROBE_DOWNWARDS(self, gcmd):
         pos = self.run_probe_downwards(gcmd)
-        gcmd.respond_raw("Z_move_complete")
+        gcmd.respond_raw("Z_move_comp")
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
 
