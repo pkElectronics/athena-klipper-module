@@ -79,7 +79,18 @@ class ZonlyKinematics:
         else:
             forcepos[axis] += 1.5 * (position_max - hi.position_endstop)
         # Perform homing
+
+        self.save_peel_accel = self.peel_accel
+        self.save_dip_accel = self.dip_accel
+
+        self.peel_accel = self.peel_deccel
+        self.dip_accel = self.dip_deccel
+
         homing_state.home_rails([rail], forcepos, homepos)
+
+        self.peel_accel = self.save_peel_accel
+        self.dip_accel = self.save_dip_accel
+
 
     def home(self, homing_state):
         # Each axis is homed independently and in order
