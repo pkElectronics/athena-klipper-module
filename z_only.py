@@ -1,6 +1,9 @@
-# Code for handling the kinematics of cartesian robots
+# Code for handling the kinematics of a single z-axis mSLA Printer
 #
 # Copyright (C) 2016-2021  Kevin O'Connor <kevin@koconnor.net>
+#
+# Based on previous work of Pascal Wistinghausen of Concepts3D <pascal@concepts3d.ca>
+# With improvements by Ada Phillips
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
@@ -10,21 +13,16 @@ import stepper
 class ZonlyKinematics:
     def __init__(self, toolhead, config):
         self.printer = config.get_printer()
-        # Setup axis rails
-        self.rails = [stepper.LookupMultiRail(config.getsection('stepper_' + n))
-                      for n in 'z']			
-        # self.rails.append(self.rails[0])
-        # self.rails.append(self.rails[0])
+        # Setup z axis rail
+        self.z_rail = stepper.LookupMultiRail(config.getsection('stepper_z'))
 
-        for rail, axis in zip(self.rails, 'z'):
-            rail.setup_itersolve('cartesian_stepper_alloc', axis.encode())
-
+        self.z_rail.setup_itersolve('cartesian_stepper_alloc', 'z'.encode())
         for s in self.get_steppers():
             s.set_trapq(toolhead.get_trapq())
             toolhead.register_step_generator(s.generate_steps)
-
         self.printer.register_event_handler("stepper_enable:motor_off",
                                             self._motor_off)
+
         # Setup boundary checks
         max_velocity, max_accel = toolhead.get_max_velocity()
         self.max_z_velocity = config.getfloat('max_z_velocity', max_velocity,
@@ -33,86 +31,81 @@ class ZonlyKinematics:
                                            above=0., maxval=max_accel)
 
         self.peel_accel = config.getfloat('peel_accel', max_accel,
-                                           above=0., maxval=max_accel)
+                                          above=0., maxval=max_accel)
 
         self.dip_accel = config.getfloat('dip_accel', max_accel,
+                                         above=0., maxval=max_accel)
+
+        self.peel_decel = config.getfloat('peel_decel', max_accel,
                                           above=0., maxval=max_accel)
 
-        self.peel_deccel = config.getfloat('peel_deccel', max_accel,
-                                           above=0., maxval=max_accel)
+        self.dip_decel = config.getfloat('dip_decel', max_accel,
+                                         above=0., maxval=max_accel)
 
-        self.dip_deccel = config.getfloat('dip_deccel', max_accel,
-                                          above=0., maxval=max_accel)
+        self.limit = (1.0, -1.0)
+        z_range = self.z_rail.get_range()
 
-        self.limits = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
-        ranges = [r.get_range() for r in self.rails]
-        self.axes_min = toolhead.Coord(0, 0, ranges[0][0], e=0.)
-        self.axes_max = toolhead.Coord(0, 0, ranges[0][1], e=0.)
+        self.axes_min = toolhead.Coord(0, 0, z_range[0], e=0.)
+        self.axes_max = toolhead.Coord(0, 0, z_range[1], e=0.)
 
     def get_steppers(self):
-        rails = self.rails
-        return [s for rail in rails for s in rail.get_steppers()]
+        return self.z_rail.get_steppers()
 
     def calc_position(self, stepper_positions):
-        pos = [stepper_positions[rail.get_name()] for rail in self.rails]
-        return [0, 0, pos[0]]
+        return [0, 0, stepper_positions[self.z_rail.get_name()]]
 
     def set_position(self, newpos, homing_axes):
-        for i, rail in enumerate(self.rails):
-            rail.set_position(newpos)
-            if 2 in homing_axes:
-                self.limits[2] = rail.get_range()
+        self.z_rail.set_position(newpos)
+        if 2 in homing_axes:
+            self.limit = self.z_rail.get_range()
 
     def note_z_not_homed(self):
         # Helper for Safe Z Home
-        self.limits[2] = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
+        self.limit = (1.0, -1.0)
 
-    def _home_axis(self, homing_state, axis, rail):
+    def _home_z_axis(self, homing_state):
         # Determine movement
-        position_min, position_max = rail.get_range()
-        hi = rail.get_homing_info()
-        homepos = [None, None, None, None]
-        homepos[axis] = hi.position_endstop
-        forcepos = list(homepos)
+        position_min, position_max = self.z_rail.get_range()
+        hi = self.z_rail.get_homing_info()
+        forcepos = hi.position_endstop
         if hi.positive_dir:
-            forcepos[axis] -= 1.5 * (hi.position_endstop - position_min)
+            forcepos -= 1.5 * (hi.position_endstop - position_min)
         else:
-            forcepos[axis] += 1.5 * (position_max - hi.position_endstop)
+            forcepos += 1.5 * (position_max - hi.position_endstop)
         # Perform homing
 
-        self.save_peel_accel = self.peel_accel
-        self.save_dip_accel = self.dip_accel
+        # self.save_peel_accel = self.peel_accel
+        # self.save_dip_accel = self.dip_accel
 
-        self.peel_accel = self.peel_deccel
-        self.dip_accel = self.dip_deccel
+        # self.peel_accel = self.peel_deccel
+        # self.dip_accel = self.dip_deccel
 
-        homing_state.home_rails([rail], forcepos, homepos)
+        homing_state.home_rails(
+            [self.z_rail],
+            [None, None, forcepos, None],
+            [None, None, hi.position_endstop, None]
+        )
 
-        self.peel_accel = self.save_peel_accel
-        self.dip_accel = self.save_dip_accel
-
+        # self.peel_accel = self.save_peel_accel
+        # self.dip_accel = self.save_dip_accel
 
     def home(self, homing_state):
-        # Each axis is homed independently and in order
-        for axis in homing_state.get_axes():
-            if axis is not 2:
-                pass
-            else:
-                self._home_axis(homing_state, axis, self.rails[0])
+        # Only z axis homing is respected
+        if 2 in homing_state.get_axes():
+            self._home_z_axis(homing_state)
 
     def _motor_off(self, print_time):
-        self.limits = [(1.0, 1.0),(1.0, 1.0),(1.0, -1.0)]
+        self.limit = (1.0, -1.0)
 
     def _check_endstops(self, move):
-        end_pos = move.end_pos
-        for i in (0, 1, 2):
-            if move.axes_d[i] and (end_pos[i] < self.limits[i][0] or end_pos[i] > self.limits[i][1]):
-                if self.limits[i][0] > self.limits[i][1]:
-                    raise move.move_error("Must home axis first "+str(i))
-                raise move.move_error()
+        end_pos = move.end_pos[2]
+        if (move.axes_d[2] and
+                (end_pos < self.limit[0] or end_pos > self.limit[1])):
+            if self.limit[0] > self.limit[1]:
+                raise move.move_error("Must home axis first")
+            raise move.move_error()
 
     def check_move(self, move):
-        limits = self.limits
         if not move.axes_d[2]:
             # Normal XY move - use defaults
             return
@@ -122,17 +115,16 @@ class ZonlyKinematics:
 
         if move.start_pos[2] > move.end_pos[2]:  # downwards move
             move.limit_speed(
-                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio, self.dip_deccel * z_ratio)
+                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio, self.dip_decel * z_ratio)
         else:
             move.limit_speed(
-                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio, self.peel_deccel * z_ratio)
+                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio, self.peel_decel * z_ratio)
 
     def get_status(self, eventtime):
-        axes = [a for a, (l, h) in zip("z", self.limits) if l <= h]
         return {
-            'homed_axes': "".join(axes),
+            'homed_axes': "z" if self.limit[0] < self.limit[1] else "",
             'axis_minimum': self.axes_min,
-            'axis_maximum': self.axes_max
+            'axis_maximum': self.axes_max,
         }
 
 
