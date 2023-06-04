@@ -42,6 +42,10 @@ class ZonlyKinematics:
         self.dip_decel = config.getfloat('dip_decel', max_accel,
                                          above=0., maxval=max_accel)
 
+        self.homing_accel_decel = config.getfloat('homing_accel_decel', max_accel/10,
+                                         above=0., maxval=max_accel)
+
+
         self.limit = (1.0, -1.0)
         z_range = self.z_rail.get_range()
 
@@ -74,11 +78,15 @@ class ZonlyKinematics:
             forcepos += 1.5 * (position_max - hi.position_endstop)
         # Perform homing
 
-        # self.save_peel_accel = self.peel_accel
-        # self.save_dip_accel = self.dip_accel
+        self.save_peel_accel = self.peel_accel
+        self.save_dip_accel = self.dip_accel
+        self.save_peel_decel = self.peel_decel
+        self.save_dip_decel = self.dip_decel
 
-        # self.peel_accel = self.peel_deccel
-        # self.dip_accel = self.dip_deccel
+        self.peel_accel = self.homing_accel_decel
+        self.dip_accel = self.homing_accel_decel
+        self.peel_decel = self.homing_accel_decel
+        self.dip_decel = self.homing_accel_decel
 
         homing_state.home_rails(
             [self.z_rail],
@@ -86,8 +94,10 @@ class ZonlyKinematics:
             [None, None, hi.position_endstop, None]
         )
 
-        # self.peel_accel = self.save_peel_accel
-        # self.dip_accel = self.save_dip_accel
+        self.peel_accel = self.save_peel_accel
+        self.dip_accel = self.save_dip_accel
+        self.peel_decel = self.save_peel_decel
+        self.dip_decel = self.save_dip_decel
 
     def home(self, homing_state):
         # Only z axis homing is respected
