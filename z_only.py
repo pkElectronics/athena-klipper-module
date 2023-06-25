@@ -8,6 +8,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import stepper
+import math
 
 
 class ZonlyKinematics:
@@ -42,9 +43,8 @@ class ZonlyKinematics:
         self.dip_decel = config.getfloat('dip_decel', max_accel,
                                          above=0., maxval=max_accel)
 
-        self.homing_accel_decel = config.getfloat('homing_accel_decel', max_accel/10,
-                                         above=0., maxval=max_accel)
-
+        self.homing_accel_decel = config.getfloat('homing_accel_decel', max_accel / 10,
+                                                  above=0., maxval=max_accel)
 
         self.limit = (1.0, -1.0)
         z_range = self.z_rail.get_range()
@@ -123,12 +123,35 @@ class ZonlyKinematics:
         self._check_endstops(move)
         z_ratio = move.move_d / abs(move.axes_d[2])
 
+        move_accel = self.max_z_accel
+        move_decel = self.max_z_accel
+
         if move.start_pos[2] > move.end_pos[2]:  # downwards move
-            move.limit_speed(
-                self.max_z_velocity * z_ratio, self.dip_accel * z_ratio, self.dip_decel * z_ratio)
+            move_accel = self.dip_accel
+            move_decel = self.dip_decel
         else:
-            move.limit_speed(
-                self.max_z_velocity * z_ratio, self.peel_accel * z_ratio, self.peel_decel * z_ratio)
+            move_accel = self.peel_accel
+            move_decel = self.peel_decel
+
+        z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
+
+        reachable_z_velocity = self.max_z_velocity
+
+        for i in range(1,int(self.max_z_velocity), 1):
+            test_v = float(i)
+            accel_t = test_v/move_accel
+            decel_t = test_v/move_decel
+            accel_d = 0.5*move_accel*accel_t**2
+            decel_d = 0.5+move_decel*decel_t**2
+
+            if (accel_d+decel_d) < abs(move.axes_d[2]):
+                reachable_z_velocity = test_v
+            else:
+                break
+
+        logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
+
+        move.limit_speed(reachable_z_velocity, move_accel * z_ratio, move_decel * z_ratio)
 
     def get_status(self, eventtime):
         return {
