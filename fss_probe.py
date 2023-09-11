@@ -116,11 +116,19 @@ class PrinterFssProbe:
         return pos
 
     def run_probe_downwards(self, gcmd):
-        lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+        dip_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+        dip_amount = gcmd.get_float("Z", 0, minval=0.)
         toolhead = self.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
 
-        pos = self._probe(lift_speed, -1*pos[2]) # probe to zero
+        logging.info("Toolhead Position:",pos[2])
+
+        if dip_amount == 0:
+            dip_amount = -1*pos[2]
+        else:
+            dip_amount = -1 * dip_amount
+
+        pos = self._probe(dip_speed, dip_amount)  # probe to zero
 
         pos = toolhead.get_position()
 
