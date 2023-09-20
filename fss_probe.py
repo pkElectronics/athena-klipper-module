@@ -53,6 +53,9 @@ class PrinterFssProbe:
         self.gcode.register_command('ATHENA_PROBE_DOWNWARDS', self.cmd_ATHENA_PROBE_DOWNWARDS,
                                     desc=self.cmd_PROBE_help)
 
+        self.gcode.register_command('ATHENA_PROBE_RESINLEVEL', self.cmd_ATHENA_PROBE_RESINLEVEL,
+                                    desc=self.cmd_PROBE_help)
+
         self.gcode.register_command('ATHENA_MOVE', self.cmd_ATHENA_PROBE_DOWNWARDS,
                                     desc=self.cmd_PROBE_help)
 
