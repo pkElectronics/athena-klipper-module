@@ -158,7 +158,7 @@ class PrinterFssProbe:
     def cmd_ATHENA_PROBE_RESINLEVEL(self, gcmd):
         pos = self.run_probe_downwards(gcmd)
         gcmd.respond_raw("Z_move_comp")
-        gcmd.respond_info("[[ResinLevel %.2f]]" % (pos[2],))
+        gcmd.respond_raw("[[ResinLevel %.2f]]" % (pos[2],))
         self.last_z_result = pos[2]
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
