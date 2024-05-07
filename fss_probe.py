@@ -178,16 +178,19 @@ class PrinterFssProbe:
         gcmd.respond_info("fss input: %s" % (["open", "TRIGGERED"][not not res],))
 
     def exposure_timing_callback(self, print_time):
-        output_pin = self.printer.lookup_object('LEDPWM')
+        output_pin = self.printer.lookup_object('output_pin LEDPWM')
         output_pin.mcu_pin.set_pwm(print_time+100, self.last_exposure_power, 0.001)
-        output_pin.mcu_pin.set_pwm(print_time+100+self.last_exposure_time, self.last_exposure_power, 0.001)
+        output_pin.mcu_pin.set_pwm(print_time+100+self.last_exposure_time, 0, 0.001)
+
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.register_lookahead_callback(lambda: self.last_gcmd.respond_raw("Z_move_comp") )
+
 
     cmd_EXPOSE_help = "Placeholder"
     def cmd_EXPOSE(self, gcmd):
         self.last_exposure_power = gcmd.get_float("PWM", 1 , above=0.)
         self.last_exposure_time = gcmd.get_float("TIME", 30000 , above=0.)
-
-
+        self.last_gcmd = gcmd
         toolhead = self.printer.lookup_object('toolhead')
 
         toolhead.register_lookahead_callback(self.exposure_timing_callback)
