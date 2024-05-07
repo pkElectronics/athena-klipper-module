@@ -31,6 +31,10 @@ class PrinterFssProbe:
 
         self.last_exposure_time = 0
         self.last_exposure_power = 0
+        self.last_gcmd = None
+
+        self.reactor = self.printer.get_reactor()
+
 
         # Infer Z position to move to during a probe
         if config.has_section('stepper_z'):
@@ -179,22 +183,23 @@ class PrinterFssProbe:
 
     def exposure_timing_callback(self, print_time):
         output_pin = self.printer.lookup_object('output_pin LEDPWM')
-        output_pin.mcu_pin.set_pwm(print_time+100, self.last_exposure_power, 0.001)
-        output_pin.mcu_pin.set_pwm(print_time+100+self.last_exposure_time, 0, 0.001)
+        output_pin.mcu_pin.set_pwm(print_time+0.1, self.last_exposure_power, 0.001)
+        output_pin.mcu_pin.set_pwm(print_time+0.1+self.last_exposure_time, 0, 0.001)
 
-        toolhead = self.printer.lookup_object('toolhead')
-        toolhead.register_lookahead_callback(lambda: self.last_gcmd.respond_raw("Z_move_comp") )
+    def exposure_done_callback(self):
+        self.last_gcmd.respond_raw("Z_move_comp")
 
 
     cmd_EXPOSE_help = "Placeholder"
     def cmd_EXPOSE(self, gcmd):
-        self.last_exposure_power = gcmd.get_float("PWM", 1 , above=0.)
-        self.last_exposure_time = gcmd.get_float("TIME", 30000 , above=0.)
+        self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.)
+        self.last_exposure_time = gcmd.get_float("TIME", 3000 , above=0.)
         self.last_gcmd = gcmd
         toolhead = self.printer.lookup_object('toolhead')
 
         toolhead.register_lookahead_callback(self.exposure_timing_callback)
 
+        self.reactor.register_callback(self.exposure_done_callback, self.last_exposure_time, self.reactor.NOW)
 
     def get_status(self, eventtime):
         return {'last_query': self.last_state,
