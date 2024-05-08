@@ -5,9 +5,8 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
+
 import pins
-from . import manual_probe
-import gcode
 
 HINT_TIMEOUT = """
 If the probe did not move far enough to trigger, then
@@ -34,6 +33,7 @@ class PrinterFssProbe:
         self.last_gcmd = None
 
         self.reactor = self.printer.get_reactor()
+
 
 
         # Infer Z position to move to during a probe
@@ -182,24 +182,28 @@ class PrinterFssProbe:
         gcmd.respond_info("fss input: %s" % (["open", "TRIGGERED"][not not res],))
 
     def exposure_timing_callback(self, print_time):
-        output_pin = self.printer.lookup_object('output_pin LEDPWM')
-        output_pin.mcu_pin.set_pwm(print_time+0.1, self.last_exposure_power, 0.001)
-        output_pin.mcu_pin.set_pwm(print_time+0.1+self.last_exposure_time, 0, 0.001)
+        reactor_time = self.reactor.monotonic()
 
-    def exposure_done_callback(self):
+        self.reactor.register_callback(self.exposure_done_callback, reactor_time+self.last_exposure_time)
+
+        self.ledpwm.mcu_pin.set_pwm(print_time+0.1, self.last_exposure_power, 0.001)
+        self.ledpwm.mcu_pin.set_pwm(print_time+0.1+self.last_exposure_time, 0, 0.001)
+
+    def exposure_done_callback(self, print_time):
         self.last_gcmd.respond_raw("Z_move_comp")
 
 
-    cmd_EXPOSE_help = "Placeholder"
+    cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
         self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.)
         self.last_exposure_time = gcmd.get_float("TIME", 3000 , above=0.)
         self.last_gcmd = gcmd
-        toolhead = self.printer.lookup_object('toolhead')
 
-        toolhead.register_lookahead_callback(self.exposure_timing_callback)
+        self.toolhead = self.printer.lookup_object('toolhead')
+        self.ledpwm = self.printer.lookup_object('output_pin LEDPWM')
 
-        self.reactor.register_callback(self.exposure_done_callback, self.last_exposure_time, self.reactor.NOW)
+        self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
+
 
     def get_status(self, eventtime):
         return {'last_query': self.last_state,
