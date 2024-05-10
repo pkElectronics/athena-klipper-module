@@ -32,6 +32,8 @@ class PrinterFssProbe:
         self.last_exposure_power = 0
         self.last_gcmd = None
 
+        self.expose_processing_delay = 0.100
+
         self.reactor = self.printer.get_reactor()
 
 
@@ -184,10 +186,10 @@ class PrinterFssProbe:
     def exposure_timing_callback(self, print_time):
         reactor_time = self.reactor.monotonic()
 
-        self.reactor.register_callback(self.exposure_done_callback, reactor_time+self.last_exposure_time)
+        self.reactor.register_callback(self.exposure_done_callback, reactor_time+self.last_exposure_time+self.expose_processing_delay)
 
-        self.ledpwm.mcu_pin.set_pwm(print_time+0.1, self.last_exposure_power, 0.001)
-        self.ledpwm.mcu_pin.set_pwm(print_time+0.1+self.last_exposure_time, 0, 0.001)
+        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay, self.last_exposure_power, 0.001)
+        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay*2+self.last_exposure_time, 0, 0.001)
 
     def exposure_done_callback(self, print_time):
         self.last_gcmd.respond_raw("Z_move_comp")
