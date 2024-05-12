@@ -30,6 +30,8 @@ class PrinterFssProbe:
 
         self.last_exposure_time = 0
         self.last_exposure_power = 0
+        self.last_exposure_pre_delay = 0
+        self.last_exposure_post_delay = 0
         self.last_gcmd = None
 
         self.expose_processing_delay = 0.100
@@ -186,10 +188,10 @@ class PrinterFssProbe:
     def exposure_timing_callback(self, print_time):
         reactor_time = self.reactor.monotonic()
 
-        self.reactor.register_callback(self.exposure_done_callback, reactor_time+self.last_exposure_time+self.expose_processing_delay)
+        self.reactor.register_callback(self.exposure_done_callback, reactor_time+self.last_exposure_time+self.expose_processing_delay*2+self.last_exposure_pre_delay+self.last_exposure_post_delay)
 
-        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay, self.last_exposure_power, 0.001)
-        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay*2+self.last_exposure_time, 0, 0.001)
+        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay+self.last_exposure_pre_delay, self.last_exposure_power, 0.001)
+        self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay+self.last_exposure_pre_delay+self.last_exposure_time, 0, 0.001)
 
     def exposure_done_callback(self, print_time):
         self.last_gcmd.respond_raw("Z_move_comp")
@@ -198,7 +200,9 @@ class PrinterFssProbe:
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
         self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.)
-        self.last_exposure_time = gcmd.get_float("TIME", 3000 , above=0.)
+        self.last_exposure_time = gcmd.get_float("TIME", 1.0 , above=0.)
+        self.last_exposure_pre_delay = gcmd.get_float("PRE_DELAY", 0 )
+        self.last_exposure_post_delay = gcmd.get_float("POST_DELAY", 0 )
         self.last_gcmd = gcmd
 
         self.toolhead = self.printer.lookup_object('toolhead')
