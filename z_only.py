@@ -149,6 +149,18 @@ class ZonlyKinematics:
             else:
                 break
 
+        for i in range(0, 10, 1):
+            test_v = float(i)/10.0+reachable_z_velocity-1.0
+            accel_t = test_v/move_accel
+            decel_t = test_v/move_decel
+            accel_d = 0.5*move_accel*accel_t**2
+            decel_d = 0.5+move_decel*decel_t**2
+
+            if (accel_d+decel_d) < abs(move.axes_d[2]):
+                reachable_z_velocity = test_v
+            else:
+                break
+
         logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
 
         move.limit_speed(reachable_z_velocity, move_accel * z_ratio, move_decel * z_ratio)
