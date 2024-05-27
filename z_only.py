@@ -146,7 +146,7 @@ class ZonlyKinematics:
             accel_t = test_v/move_accel
             decel_t = test_v/move_decel
             accel_d = 0.5*move_accel*accel_t**2
-            decel_d = 0.5+move_decel*decel_t**2
+            decel_d = 0.5*move_decel*decel_t**2
 
             if (accel_d+decel_d) < abs(move.axes_d[2]):
                 reachable_z_velocity = test_v
