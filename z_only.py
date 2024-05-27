@@ -135,22 +135,14 @@ class ZonlyKinematics:
 
         z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
 
+        if z_small_move_ratio < 1:
+            move_accel = min(move_accel,move_decel)
+            move_decel = move_accel
+        
         reachable_z_velocity = self.max_z_velocity
 
         for i in range(1,int(self.max_z_velocity), 1):
             test_v = float(i)
-            accel_t = test_v/move_accel
-            decel_t = test_v/move_decel
-            accel_d = 0.5*move_accel*accel_t**2
-            decel_d = 0.5+move_decel*decel_t**2
-
-            if (accel_d+decel_d) < abs(move.axes_d[2]):
-                reachable_z_velocity = test_v
-            else:
-                break
-
-        for i in range(0, 10, 1):
-            test_v = float(i)/10.0+reachable_z_velocity-1.0
             accel_t = test_v/move_accel
             decel_t = test_v/move_decel
             accel_d = 0.5*move_accel*accel_t**2
