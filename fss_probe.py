@@ -111,7 +111,7 @@ class PrinterFssProbe:
                 raise self.printer.command_error(reason)
 
             elif "No trigger on probe after full movement" in reason:
-                # in our case this is not an error but desired behavior
+                # in our case this is not an error but desired behaviorcr
                 epos = toolhead.get_position()
                 epos[2] = amount
 
@@ -139,7 +139,7 @@ class PrinterFssProbe:
         toolhead = self.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
 
-        logging.info("Toolhead Position:",pos[2])
+        #logging.info("Toolhead Position:",pos[2])
 
         if dip_amount == 0:
             dip_amount = -1*pos[2]
@@ -194,6 +194,9 @@ class PrinterFssProbe:
         self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay+self.last_exposure_pre_delay+self.last_exposure_time, 0, 0.001)
 
     def exposure_done_callback(self, print_time):
+        if self.resin_temp_setpoint != 0.0:
+            self.resinheater.set_temp(self.resin_temp_setpoint)
+
         self.last_gcmd.respond_raw("Z_move_comp")
 
 
@@ -207,6 +210,13 @@ class PrinterFssProbe:
 
         self.toolhead = self.printer.lookup_object('toolhead')
         self.ledpwm = self.printer.lookup_object('output_pin LEDPWM')
+        self.resinheater = self.printer.lookup_object('heater_generic resin_heater')
+
+        self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
+        self.resin_temp_setpoint = self.resin_temp_setpoint[1]
+
+        if self.resin_temp_setpoint != 0.0:
+            self.resinheater.set_temp(0.0)
 
         self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
 

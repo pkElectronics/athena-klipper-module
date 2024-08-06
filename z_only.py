@@ -138,7 +138,7 @@ class ZonlyKinematics:
         if z_small_move_ratio < 1:
             move_accel = min(move_accel,move_decel)
             move_decel = move_accel
-        
+
         reachable_z_velocity = self.max_z_velocity
 
         for i in range(1,int(self.max_z_velocity), 1):
