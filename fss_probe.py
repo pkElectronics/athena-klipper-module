@@ -213,6 +213,8 @@ class PrinterFssProbe:
         self.resinheater = self.printer.lookup_object('heater_generic resin_heater')
 
         self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
+        self.resin_temp_setpoint = self.resin_temp_setpoint[1]
+
         if self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(0.0)
 
