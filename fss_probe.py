@@ -22,6 +22,7 @@ class PrinterFssProbe:
         self.mcu_probe = mcu_probe
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
+        self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=1.0)
 
         self.multi_probe_pending = False
         self.last_state = False
@@ -130,6 +131,13 @@ class PrinterFssProbe:
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
 
         pos = self._probe(lift_speed, lift_amount)
+
+        if pos[2] < self.min_lift_distance:
+            logging.info("Minimum lift distance not reached: %d required: %d", pos[2], self.min_lift_distance)
+            pos_actual = self.toolhead.get_position()
+            pos_actual[2] += self.min_lift_distance - pos[2]
+            self.toolhead.manual_move(pos_actual, lift_speed)
+            pos[2] = self.min_lift_distance
 
         return pos
 
