@@ -35,7 +35,7 @@ class PrinterFssProbe:
         self.last_exposure_post_delay = 0
         self.last_gcmd = None
 
-        self.expose_processing_delay = 0.100
+        self.expose_processing_delay = 0.300
 
         self.reactor = self.printer.get_reactor()
 
@@ -226,7 +226,6 @@ class PrinterFssProbe:
 
         if self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(0.0)
-            self.resinheater.set_pwm(self.reactor.monotonic(), 0) #force io to off
 
         self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
 
