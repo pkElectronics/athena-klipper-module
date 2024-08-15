@@ -204,7 +204,7 @@ class PrinterFssProbe:
     def exposure_done_callback(self, print_time):
         if self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(self.resin_temp_setpoint)
-            self.resinheater.temperature_callback(self.reactor.monotonic(),self.resin_temp_setpoint-1.0)
+            self.resinheater.set_pwm(self.reactor.monotonic(), self.resin_heater_pwm)
 
         self.last_gcmd.respond_raw("Z_move_comp")
 
@@ -223,6 +223,7 @@ class PrinterFssProbe:
 
         self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
         self.resin_temp_setpoint = self.resin_temp_setpoint[1]
+        self.resin_heater_pwm = self.resinheater.last_pwm_value
 
         if self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(0.0)
