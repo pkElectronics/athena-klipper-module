@@ -203,9 +203,8 @@ class PrinterFssProbe:
 
     def exposure_done_callback(self, print_time):
         if self.resin_temp_setpoint != 0.0:
-            toolhead = self.printer.lookup_object('toolhead')
-            toolhead.register_lookahead_callback((lambda pt: None))
             self.resinheater.set_temp(self.resin_temp_setpoint)
+            self.resinheater.temperature_callback(self.resin_temp_setpoint-1.0,self.resin_temp_setpoint)
 
         self.last_gcmd.respond_raw("Z_move_comp")
 
