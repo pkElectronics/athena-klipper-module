@@ -133,11 +133,16 @@ class PrinterFssProbe:
         pos = self._probe(lift_speed, lift_amount)
 
         if pos[2] < self.min_lift_distance:
-            logging.info("Minimum lift distance not reached: %d required: %d", pos[2], self.min_lift_distance)
+            logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
             pos_actual = self.toolhead.get_position()
-            pos_actual[2] += self.min_lift_distance - pos[2]
-            self.toolhead.manual_move(pos_actual, lift_speed)
-            pos[2] = self.min_lift_distance
+            remaining_move = self.min_lift_distance - pos[2]
+
+            if remaining_move > 0.1:
+                pos_actual[2] += remaining_move
+                self.toolhead.manual_move(pos_actual, lift_speed)
+                pos[2] = self.min_lift_distance
+            else:
+                logging.info("Skipping due to hysteresis")
 
         return pos
 
