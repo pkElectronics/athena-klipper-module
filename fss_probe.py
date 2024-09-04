@@ -138,28 +138,29 @@ class PrinterFssProbe:
 
         pos = self._probe(lift_speed, lift_amount)
 
-        if self.peelmode == "minimal":
+        toolhead = self.printer.lookup_object('toolhead')
 
+        if self.peelmode == "minimal":
             if pos[2] < self.min_lift_distance:
                 logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
-                pos_actual = self.toolhead.get_position()
+                pos_actual = toolhead.get_position()
                 remaining_move = self.min_lift_distance - pos[2]
 
                 if remaining_move > 0.1:
                     pos_actual[2] += remaining_move
-                    self.toolhead.manual_move(pos_actual, lift_speed)
+                    toolhead.manual_move(pos_actual, lift_speed)
                     pos[2] = self.min_lift_distance
                 else:
                     logging.info("Skipping due to hysteresis")
 
         elif self.peelmode == "full":
             logging.info("Peel finished after %f", pos[2])
-            pos_actual = self.toolhead.get_position()
+            pos_actual = toolhead.get_position()
             remaining_move = lift_amount - pos[2]
 
             if remaining_move > 0.1:
                 pos_actual[2] += remaining_move
-                self.toolhead.manual_move(pos_actual, lift_speed*2)
+                toolhead.manual_move(pos_actual, lift_speed*2)
                 pos[2] = self.min_lift_distance
             else:
                 logging.info("Skipping due to hysteresis")
