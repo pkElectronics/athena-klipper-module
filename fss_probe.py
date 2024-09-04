@@ -35,6 +35,8 @@ class PrinterFssProbe:
         self.last_exposure_post_delay = 0
         self.last_gcmd = None
 
+        self.peelmode = "minimal"
+
         self.expose_processing_delay = 0.300
 
         self.reactor = self.printer.get_reactor()
@@ -77,6 +79,10 @@ class PrinterFssProbe:
 
         self.gcode.register_command('EXPOSE', self.cmd_EXPOSE,
                                     desc=self.cmd_EXPOSE_help)
+
+        self.gcode.register_command('ATHENA_SET_PEELMODE_MINIMAL', self.cmd_ATHENA_SET_PEELMODE_MINIMAL)
+
+        self.gcode.register_command('ATHENA_SET_PEELMODE_FULL', self.cmd_ATHENA_SET_PEELMODE_FULL)
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -132,14 +138,28 @@ class PrinterFssProbe:
 
         pos = self._probe(lift_speed, lift_amount)
 
-        if pos[2] < self.min_lift_distance:
-            logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
+        if self.peelmode == "minimal":
+
+            if pos[2] < self.min_lift_distance:
+                logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
+                pos_actual = self.toolhead.get_position()
+                remaining_move = self.min_lift_distance - pos[2]
+
+                if remaining_move > 0.1:
+                    pos_actual[2] += remaining_move
+                    self.toolhead.manual_move(pos_actual, lift_speed)
+                    pos[2] = self.min_lift_distance
+                else:
+                    logging.info("Skipping due to hysteresis")
+
+        elif self.peelmode == "full":
+            logging.info("Peel finished after %f", pos[2])
             pos_actual = self.toolhead.get_position()
-            remaining_move = self.min_lift_distance - pos[2]
+            remaining_move = lift_amount - pos[2]
 
             if remaining_move > 0.1:
                 pos_actual[2] += remaining_move
-                self.toolhead.manual_move(pos_actual, lift_speed)
+                self.toolhead.manual_move(pos_actual, lift_speed*2)
                 pos[2] = self.min_lift_distance
             else:
                 logging.info("Skipping due to hysteresis")
@@ -188,6 +208,13 @@ class PrinterFssProbe:
         gcmd.respond_raw("Z_move_comp")
         gcmd.respond_raw("ResinLevel:%.2f" % (pos[2],))
         self.last_z_result = pos[2]
+
+    def cmd_ATHENA_SET_PEELMODE_MINIMAL(self, gcmd):
+        self.peelmode="minimal"
+
+    def cmd_ATHENA_SET_PEELMODE_FULL(self, gcmd):
+        self.peelmode="full"
+
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
 
