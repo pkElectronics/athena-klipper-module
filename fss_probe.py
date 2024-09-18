@@ -22,7 +22,7 @@ class PrinterFssProbe:
         self.mcu_probe = mcu_probe
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
-        self.min_lift_distance = config.getfloat('min_lift_distance', 1.0, above=.5)
+        self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
 
         self.multi_probe_pending = False
         self.last_state = False
