@@ -84,6 +84,8 @@ class PrinterFssProbe:
 
         self.gcode.register_command('ATHENA_SET_PEELMODE_FULL', self.cmd_ATHENA_SET_PEELMODE_FULL)
 
+        self.gcode.register_command('ATHENA_SET_MINIMUM_LIFT_DISTANCE', self.cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE)
+
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
             raise pins.error("Probe virtual endstop only useful as endstop pin")
@@ -215,6 +217,9 @@ class PrinterFssProbe:
 
     def cmd_ATHENA_SET_PEELMODE_FULL(self, gcmd):
         self.peelmode="full"
+
+    def cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE(self, gcmd):
+        self.min_lift_distance = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
 
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
