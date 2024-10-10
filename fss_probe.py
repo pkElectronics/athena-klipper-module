@@ -24,7 +24,7 @@ class PrinterFssProbe:
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
 
-        self.enable_powermgmt = config.getboolean("enable_heater_powermgmt", True)
+        self.enable_powermgmt = config.getboolean("enable_uvled_powermgmt", True)
 
         self.multi_probe_pending = False
         self.last_state = False
