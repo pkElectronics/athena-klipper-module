@@ -24,6 +24,8 @@ class PrinterFssProbe:
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
 
+        self.enable_powermgmt = config.getboolean("enable_heater_powermgmt", True)
+
         self.multi_probe_pending = False
         self.last_state = False
         self.last_z_result = 0.
@@ -34,6 +36,9 @@ class PrinterFssProbe:
         self.last_exposure_pre_delay = 0
         self.last_exposure_post_delay = 0
         self.last_gcmd = None
+
+        self.resin_temp_setpoint = 0.0
+        self.resinheater = None
 
         self.peelmode = "minimal"
 
@@ -240,7 +245,8 @@ class PrinterFssProbe:
         self.ledpwm.mcu_pin.set_pwm(print_time+self.expose_processing_delay+self.last_exposure_pre_delay+self.last_exposure_time, 0, 0.001)
 
     def exposure_done_callback(self, print_time):
-        if self.resin_temp_setpoint != 0.0:
+
+        if self.enable_powermgmt and self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(self.resin_temp_setpoint)
 
         self.last_gcmd.respond_raw("Z_move_comp")
@@ -256,14 +262,15 @@ class PrinterFssProbe:
 
         self.toolhead = self.printer.lookup_object('toolhead')
         self.ledpwm = self.printer.lookup_object('output_pin LEDPWM')
-        self.resinheater = self.printer.lookup_object('heater_generic resin_heater')
 
-        self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
-        self.resin_temp_setpoint = self.resin_temp_setpoint[1]
-        self.resin_heater_pwm = self.resinheater.last_pwm_value
 
-        if self.resin_temp_setpoint != 0.0:
-            self.resinheater.set_temp(0.0)
+        if self.enable_powermgmt:
+            self.resinheater = self.printer.lookup_object('heater_generic resin_heater')
+            self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
+            self.resin_temp_setpoint = self.resin_temp_setpoint[1]
+
+            if self.resin_temp_setpoint != 0.0:
+                self.resinheater.set_temp(0.0)
 
         self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
 
