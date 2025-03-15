@@ -63,6 +63,11 @@ class ZonlyKinematics:
         if 2 in homing_axes:
             self.limit = self.z_rail.get_range()
 
+    def clear_homing_state(self, clear_axes):
+        for axis, axis_name in enumerate("z"):
+            if axis_name in clear_axes:
+                self.limit = (1.0, -1.0)
+
     def note_z_not_homed(self):
         # Helper for Safe Z Home
         self.limit = (1.0, -1.0)
