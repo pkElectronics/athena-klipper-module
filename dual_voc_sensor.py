@@ -155,8 +155,8 @@ class DualVocSensor:
             self.store_data()
 
             if self.enable_respond:
-                self.dummy_gcode_cmd.respond_raw(f"INLETVOC:{self.inlet_calib.get_air_quality_indicator()[1]}")
-                self.dummy_gcode_cmd.respond_raw(f"OUTLETVOC:{self.outlet_calib.get_air_quality_indicator()[1]}")
+                self.dummy_gcode_cmd.respond_raw(f"VOCINLET:{self.inlet_calib.get_air_quality_indicator()[1]}")
+                self.dummy_gcode_cmd.respond_raw(f"VOCOUTLET:{self.outlet_calib.get_air_quality_indicator()[1]}")
 
 
         if calib_changed:
