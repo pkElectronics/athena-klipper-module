@@ -22,8 +22,12 @@ class PrinterFssProbe:
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
+        self.full_lift_speed = None
 
         self.enable_powermgmt = config.getboolean("enable_uvled_powermgmt", True)
+
+        if self.enable_powermgmt:
+            self.powermanaged_heater_name = config.get("uvled_powermgmt_heater_name","heater_generic resin_heater")
 
         self.multi_probe_pending = False
         self.last_state = False
@@ -89,6 +93,8 @@ class PrinterFssProbe:
         self.gcode.register_command('ATHENA_SET_PEELMODE_FULL', self.cmd_ATHENA_SET_PEELMODE_FULL)
 
         self.gcode.register_command('ATHENA_SET_MINIMUM_LIFT_DISTANCE', self.cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE)
+
+        self.gcode.register_command('ATHENA_SET_FULL_LIFT_SPEED', self.cmd_ATHENA_SET_FULL_LIFT_SPEED)
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -166,7 +172,12 @@ class PrinterFssProbe:
 
             if remaining_move > 0.1:
                 pos_actual[2] += remaining_move
-                toolhead.manual_move(pos_actual, lift_speed*2)
+                if self.full_lift_speed is None or self.full_lift_speed == 0 :
+                    speed = lift_speed*2
+                else:
+                    speed = self.full_lift_speed
+
+                toolhead.manual_move(pos_actual, speed)
                 pos[2] = lift_amount
             else:
                 logging.info("Skipping due to hysteresis")
@@ -194,10 +205,6 @@ class PrinterFssProbe:
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
 
-    def cmd_ATHENA_MOVE(self, gcmd):
-        cmd_G1(gcmd)
-        gcmd.respond_raw("Z_move_comp")
-
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
         pos = self.run_probe_upwards(gcmd)
         gcmd.respond_raw("Z_move_comp")
@@ -224,6 +231,9 @@ class PrinterFssProbe:
 
     def cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE(self, gcmd):
         self.min_lift_distance = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
+
+    def cmd_ATHENA_SET_FULL_LIFT_SPEED(self, gcmd):
+        self.full_lift_speed = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
 
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
@@ -264,7 +274,7 @@ class PrinterFssProbe:
 
 
         if self.enable_powermgmt:
-            self.resinheater = self.printer.lookup_object('heater_generic resin_heater')
+            self.resinheater = self.printer.lookup_object(self.powermanaged_heater_name)
             self.resin_temp_setpoint = self.resinheater.get_temp(self.reactor.monotonic())
             self.resin_temp_setpoint = self.resin_temp_setpoint[1]
 
