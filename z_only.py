@@ -55,6 +55,20 @@ class ZonlyKinematics:
     def get_steppers(self):
         return self.z_rail.get_steppers()
 
+    def get_accel_decel(self):
+        data = dict()
+        data["peel_accel"] = self.peel_accel
+        data["peel_decel"] = self.peel_decel
+        data["dip_accel"] = self.dip_accel
+        data["dip_decel"] = self.dip_decel
+        return data
+
+    def set_accel_decel(self,data):
+        self.peel_accel = data["peel_accel"]
+        self.peel_decel = data["peel_decel"]
+        self.dip_accel = data["dip_accel"]
+        self.dip_decel = data["dip_decel"]
+
     def calc_position(self, stepper_positions):
         return [0, 0, stepper_positions[self.z_rail.get_name()]]
 

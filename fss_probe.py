@@ -177,7 +177,15 @@ class PrinterFssProbe:
                 else:
                     speed = self.full_lift_speed
 
+                kin = toolhead.get_kinematics()
+                current_accel_decel = kin.get_accel_decel()
+                new_accel_decel = current_accel_decel.copy()
+                new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
+                kin.set_accel_decel(new_accel_decel)
+
                 toolhead.manual_move(pos_actual, speed)
+
+                kin.set_accel_decel(current_accel_decel)
                 pos[2] = lift_amount
             else:
                 logging.info("Skipping due to hysteresis")
@@ -233,7 +241,7 @@ class PrinterFssProbe:
         self.min_lift_distance = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
 
     def cmd_ATHENA_SET_FULL_LIFT_SPEED(self, gcmd):
-        self.full_lift_speed = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
+        self.full_lift_speed = gcmd.get_float("VALUE", self.lift_speed, minval=0.)
 
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
