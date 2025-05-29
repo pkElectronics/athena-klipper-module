@@ -74,7 +74,7 @@ class ZonlyKinematics:
 
     def set_position(self, newpos, homing_axes):
         self.z_rail.set_position(newpos)
-        if 2 in homing_axes:
+        if "z" in homing_axes:
             self.limit = self.z_rail.get_range()
 
     def clear_homing_state(self, clear_axes):
