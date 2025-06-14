@@ -13,11 +13,10 @@ class PulseOut:
         self.printer = config.get_printer()
         self.name = config.get_name()
 
-        self.output_name = config.get(""
-                                      "output_name")
+        self.output_name = config.get("output_name")
 
-        self.toolhead = self.printer.lookup_object('toolhead')
-        self.output = self.printer.lookup_object(f'output_pin {self.output_name}')
+        self.toolhead = None
+        self.output = None
 
 
         self.report_finished = config.getboolean("report_finished",False)
@@ -38,6 +37,14 @@ class PulseOut:
         self.gcode.register_mux_command("PULSE_OUT", "NAME",
                                         self.name, self.cmd_PULSE_OUT,
                                         desc=self.cmd_PULSE_OUT_help)
+
+        self.printer.register_event_handler("klippy:connect",
+                                            self.handle_connect)
+
+
+    def handle_connect(self):
+        self.toolhead = self.printer.lookup_object('toolhead')
+        self.output = self.printer.lookup_object(f'output_pin {self.output_name}')
 
 
     def pulse_out_timing_callback(self, print_time):
