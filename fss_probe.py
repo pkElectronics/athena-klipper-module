@@ -34,6 +34,8 @@ class PrinterFssProbe:
         self.last_z_result = 0.
         self.gcode_move = self.printer.load_object(config, "gcode_move")
 
+        self.exposure_calibration = 1.0
+
         self.last_exposure_time = 0
         self.last_exposure_power = 0
         self.last_exposure_pre_delay = 0
@@ -87,6 +89,9 @@ class PrinterFssProbe:
 
         self.gcode.register_command('EXPOSE', self.cmd_EXPOSE,
                                     desc=self.cmd_EXPOSE_help)
+
+        self.gcode.register_command('SET_EXPOSE_CALIBRATION', self.cmd_SET_EXPOSE_CALIBRATION,
+                                    desc=self.cmd_SET_EXPOSE_CALIBRATION)
 
         self.gcode.register_command('ATHENA_SET_PEELMODE_MINIMAL', self.cmd_ATHENA_SET_PEELMODE_MINIMAL)
 
@@ -268,10 +273,13 @@ class PrinterFssProbe:
 
         self.last_gcmd.respond_raw("Z_move_comp")
 
+    cmd_EXPOSE_help = "Sets the exposure power calibration value"
+    def cmd_SET_EXPOSE_CALIBRATION(self,gcmd):
+        self.exposure_calibration = gcmd.get_float("VALUE", 1 , above=0.)
 
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
-        self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.)
+        self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.) * self.exposure_calibration
         self.last_exposure_time = gcmd.get_float("TIME", 1.0 , above=0.)
         self.last_exposure_pre_delay = gcmd.get_float("PRE_DELAY", 0 )
         self.last_exposure_post_delay = gcmd.get_float("POST_DELAY", 0 )
