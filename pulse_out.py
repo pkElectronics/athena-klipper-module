@@ -29,6 +29,8 @@ class PulseOut:
 
         self.pulse_out_processing_delay = 0.300
 
+        self.pulse_out_active = False
+
         self.reactor = self.printer.get_reactor()
 
         # Register PROBE/QUERY_PROBE commands
@@ -56,18 +58,24 @@ class PulseOut:
         self.output.mcu_pin.set_pwm(print_time + self.pulse_out_processing_delay + self.last_pulse_out_pre_delay + self.last_pulse_out_time, 0)
 
     def pulse_out_done_callback(self, print_time):
+        self.pulse_out_active = False
         if self.report_finished:
             self.last_gcmd.respond_raw("Z_move_comp")
 
 
     cmd_PULSE_OUT_help = ""
     def cmd_PULSE_OUT(self, gcmd):
+
+        if self.pulse_out_active:
+            logging.warning("Exposure already running, please try again later")
+            return
+
         self.last_pulse_out_power = gcmd.get_float("PWM", 0.1, above=0.)
         self.last_pulse_out_time = gcmd.get_float("TIME", 1.0, above=0.)
         self.last_pulse_out_pre_delay = gcmd.get_float("PRE_DELAY", 0)
         self.last_pulse_out_post_delay = gcmd.get_float("POST_DELAY", 0)
         self.last_gcmd = gcmd
-
+        self.pulse_out_active = True
         self.toolhead.register_lookahead_callback(self.pulse_out_timing_callback)
 
 def load_config_prefix(config):

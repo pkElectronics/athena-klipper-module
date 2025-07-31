@@ -49,6 +49,9 @@ class PrinterFssProbe:
 
         self.expose_processing_delay = 0.300
 
+        self.exposure_active_flag = False
+        self.uvled_pwm_cutoff_value = 0.25
+
         self.reactor = self.printer.get_reactor()
 
 
@@ -271,6 +274,7 @@ class PrinterFssProbe:
         if self.enable_powermgmt and self.resin_temp_setpoint != 0.0:
             self.resinheater.set_temp(self.resin_temp_setpoint)
 
+        self.exposure_active_flag = False
         self.last_gcmd.respond_raw("Z_move_comp")
 
     cmd_EXPOSE_help = "Sets the exposure power calibration value"
@@ -279,7 +283,12 @@ class PrinterFssProbe:
 
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
-        self.last_exposure_power = gcmd.get_float("PWM", 0.1 , above=0.) * self.exposure_calibration
+
+        if self.exposure_active_flag:
+            logging.warning("Exposure already running, please try again later")
+            return
+
+        self.last_exposure_power = ((gcmd.get_float("PWM", 0.1 , above=0.) * self.exposure_calibration) * (1-self.uvled_pwm_cutoff_value))+self.uvled_pwm_cutoff_value
         self.last_exposure_time = gcmd.get_float("TIME", 1.0 , above=0.)
         self.last_exposure_pre_delay = gcmd.get_float("PRE_DELAY", 0 )
         self.last_exposure_post_delay = gcmd.get_float("POST_DELAY", 0 )
@@ -297,6 +306,7 @@ class PrinterFssProbe:
             if self.resin_temp_setpoint != 0.0:
                 self.resinheater.set_temp(0.0)
 
+        self.exposure_active_flag = True
         self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
 
 
