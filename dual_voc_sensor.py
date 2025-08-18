@@ -45,12 +45,12 @@ class SensorDataHandler:
                 self.calibration_data[temp] = calib
                 calibration_changed = True
 
-            logging.info(f"Raw: {meas}, Calib: {calib}, Temp: {temp}")
+            #logging.info(f"Raw: {meas}, Calib: {calib}, Temp: {temp}")
 
             f = 100 / (calib - self.lower_threshold)
             meas = (meas - self.lower_threshold) * f
 
-            logging.info(f"Factor: {f}, Normalized: {meas}")
+            #logging.info(f"Factor: {f}, Normalized: {meas}")
 
             self.normalized_data[temp] = round( meas,2)
 
