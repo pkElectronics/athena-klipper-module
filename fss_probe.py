@@ -186,8 +186,8 @@ class PrinterFssProbe:
                 new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
                 kin.set_accel_decel(new_accel_decel)
 
-                if pos[2] < self.min_lift_distance and pos[2] - self.min_lift_distance > 0.1:
-                    remaining_min_lift_move = pos[2] - self.min_lift_distance
+                if pos[2] < self.min_lift_distance and self.min_lift_distance - pos[2] > 0.1:
+                    remaining_min_lift_move = self.min_lift_distance - pos[2]
 
                     logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
 
