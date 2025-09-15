@@ -179,11 +179,6 @@ class PrinterFssProbe:
             remaining_move = lift_amount - pos[2]
 
             if remaining_move > 0.1:
-                pos_actual[2] += remaining_move
-                if self.full_lift_speed is None or self.full_lift_speed == 0 :
-                    speed = lift_speed*2
-                else:
-                    speed = self.full_lift_speed
 
                 kin = toolhead.get_kinematics()
                 current_accel_decel = kin.get_accel_decel()
@@ -191,6 +186,22 @@ class PrinterFssProbe:
                 new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
                 kin.set_accel_decel(new_accel_decel)
 
+                if pos[2] < self.min_lift_distance and pos[2] - self.min_lift_distance > 0.1:
+                    remaining_min_lift_move = pos[2] - self.min_lift_distance
+
+                    logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
+
+                    pos_actual[2] += remaining_min_lift_move
+                    remaining_move -= remaining_min_lift_move
+                    toolhead.manual_move(pos_actual, lift_speed)
+
+
+                if self.full_lift_speed is None or self.full_lift_speed == 0 :
+                    speed = lift_speed*2
+                else:
+                    speed = self.full_lift_speed
+
+                pos_actual[2] += remaining_move
                 toolhead.manual_move(pos_actual, speed)
 
                 kin.set_accel_decel(current_accel_decel)
@@ -249,7 +260,7 @@ class PrinterFssProbe:
         self.min_lift_distance = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
 
     def cmd_ATHENA_SET_FULL_LIFT_SPEED(self, gcmd):
-        self.full_lift_speed = gcmd.get_float("VALUE", self.lift_speed, minval=0.)
+        self.full_lift_speed = gcmd.get_float("VALUE", self.lift_speed * 60, minval=0.) / 60
 
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"

@@ -52,6 +52,11 @@ class ZonlyKinematics:
         self.axes_min = toolhead.Coord(0, 0, z_range[0], e=0.)
         self.axes_max = toolhead.Coord(0, 0, z_range[1], e=0.)
 
+        self.gcode = self.printer.lookup_object('gcode')
+
+        self.gcode.register_command('UPDATE_ACCEL_LIMITS', self.cmd_UPDATE_ACCEL_LIMITS)
+
+
     def get_steppers(self):
         return self.z_rail.get_steppers()
 
@@ -182,6 +187,14 @@ class ZonlyKinematics:
             'axis_minimum': self.axes_min,
             'axis_maximum': self.axes_max,
         }
+
+
+    def cmd_UPDATE_ACCEL_LIMITS(self, gcmd):
+        self.peel_accel = gcmd.get_float("PEEL_ACCEL", self.peel_accel, above=0.)
+        self.peel_decel = gcmd.get_float("PEEL_DECEL", self.peel_decel, above=0.)
+        self.dip_accel = gcmd.get_float("DIP_ACCEL", self.dip_accel, above=0.)
+        self.dip_decel = gcmd.get_float("DIP_DECEL", self.dip_decel, above=0.)
+        return True
 
 
 def load_kinematics(toolhead, config):
