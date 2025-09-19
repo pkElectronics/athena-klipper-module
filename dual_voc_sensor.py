@@ -203,6 +203,8 @@ class DualVocSensor:
         self.printer.register_event_handler("klippy:connect",
                                             self._handle_connect)
 
+        self.printer.register_event_handler("klippy:shutdown", self._handle_shutdown)
+
 
     def _handle_connect(self):
 
@@ -212,6 +214,9 @@ class DualVocSensor:
         self.sample_timer = self.reactor.register_timer(self._sample_voc)
         self.reactor.update_timer(self.sample_timer, self.reactor.NOW)
 
+    def _handle_shutdown(self):
+        self.store_data()
+        self.store_calib()
 
     def _sample_voc(self,eventtime):
 
@@ -225,16 +230,16 @@ class DualVocSensor:
 
         if data_changed:
             logging.info("Storing Data")
-            self.store_data()
+            #self.store_data()
 
             if self.enable_respond:
                 self.dummy_gcode_cmd.respond_raw(f"VOCINLET:{self.inlet_calib.get_air_quality_indicator()[1]}")
                 self.dummy_gcode_cmd.respond_raw(f"VOCOUTLET:{self.outlet_calib.get_air_quality_indicator()[1]}")
 
 
-        if calib_changed:
-            logging.info("Storing Calibration")
-            self.store_calib()
+        #if calib_changed:
+        #    logging.info("Storing Calibration")
+        #    self.store_calib()
 
 
         measured_time = self.reactor.monotonic()
