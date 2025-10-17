@@ -107,7 +107,7 @@ class ZonlyKinematics:
         self.save_peel_decel = self.peel_decel
         self.save_dip_decel = self.dip_decel
 
-        self.peel_accel = self.homing_accel_decel
+        #self.peel_accel = self.homing_accel_decel
         self.dip_accel = self.homing_accel_decel
         self.peel_decel = self.homing_accel_decel
         self.dip_decel = self.homing_accel_decel
