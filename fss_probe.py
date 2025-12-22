@@ -5,6 +5,8 @@
 #
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
+import math
+from typing import Callable, Tuple
 import pins
 
 HINT_TIMEOUT = """
@@ -24,6 +26,8 @@ class PrinterFssProbe:
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
         self.full_lift_speed = None
 
+        self.buildplate_area = 120*210 #make configurable in the future
+
         self.enable_powermgmt = config.getboolean("enable_uvled_powermgmt", True)
 
         if self.enable_powermgmt:
@@ -41,6 +45,7 @@ class PrinterFssProbe:
         self.last_exposure_pre_delay = 0
         self.last_exposure_post_delay = 0
         self.last_gcmd = None
+        self.last_resin_level = 5.0
 
         self.resin_temp_setpoint = 0.0
         self.resinheater = None
@@ -84,6 +89,9 @@ class PrinterFssProbe:
         self.gcode.register_command('ATHENA_PROBE_RESINLEVEL', self.cmd_ATHENA_PROBE_RESINLEVEL,
                                     desc=self.cmd_PROBE_help)
 
+        self.gcode.register_command('ATHENA_OVERRIDE_RESINLEVEL', self.cmd_ATHENA_OVERRIDE_RESINLEVEL,
+                                    desc=self.cmd_PROBE_help)
+
         self.gcode.register_command('ATHENA_MOVE', self.cmd_ATHENA_PROBE_DOWNWARDS,
                                     desc=self.cmd_PROBE_help)
 
@@ -103,6 +111,8 @@ class PrinterFssProbe:
         self.gcode.register_command('ATHENA_SET_MINIMUM_LIFT_DISTANCE', self.cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE)
 
         self.gcode.register_command('ATHENA_SET_FULL_LIFT_SPEED', self.cmd_ATHENA_SET_FULL_LIFT_SPEED)
+
+        self.gcode.register_command('ATHENA_SMART_DIP', self.cmd_ATHENA_SMART_DIP)
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -211,6 +221,168 @@ class PrinterFssProbe:
 
         return pos
 
+    def smart_peel(self, gcmd):
+        lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
+        lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+
+        pos = self._probe(lift_speed, lift_amount)
+
+        toolhead = self.printer.lookup_object('toolhead')
+
+        if self.peelmode == "minimal":
+            if pos[2] < self.min_lift_distance:
+                logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
+                pos_actual = toolhead.get_position()
+                remaining_move = self.min_lift_distance - pos[2]
+
+                if remaining_move > 0.1:
+                    pos_actual[2] += remaining_move
+                    toolhead.manual_move(pos_actual, lift_speed)
+                    pos[2] = self.min_lift_distance
+                else:
+                    logging.info("Skipping due to hysteresis")
+
+        elif self.peelmode == "full":
+            logging.info("Peel finished after %f", pos[2])
+            pos_actual = toolhead.get_position()
+            remaining_move = lift_amount - pos[2]
+
+            if remaining_move > 0.1:
+
+                kin = toolhead.get_kinematics()
+                current_accel_decel = kin.get_accel_decel()
+                new_accel_decel = current_accel_decel.copy()
+                new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
+                kin.set_accel_decel(new_accel_decel)
+
+                if pos[2] < self.min_lift_distance and self.min_lift_distance - pos[2] > 0.1:
+                    remaining_min_lift_move = self.min_lift_distance - pos[2]
+
+                    logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
+
+                    pos_actual[2] += remaining_min_lift_move
+                    remaining_move -= remaining_min_lift_move
+                    toolhead.manual_move(pos_actual, lift_speed)
+
+
+                if self.full_lift_speed is None or self.full_lift_speed == 0 :
+                    speed = lift_speed*2
+                else:
+                    speed = self.full_lift_speed
+
+                pos_actual[2] += remaining_move
+                toolhead.manual_move(pos_actual, speed)
+
+                kin.set_accel_decel(current_accel_decel)
+                pos[2] = lift_amount
+            else:
+                logging.info("Skipping due to hysteresis")
+
+        return pos
+
+    def _calc_v1(self,r2,P,u,A):
+
+        top = 2 * math.pi * P * pow(r2,3)
+        bot = 3 + u + A
+
+        return top/bot
+
+    def _calc_v2(self,P,dl,u,A):
+        Cf = 0.0362 - ( 9.81 * pow(10,-8))
+
+        top = 2 * math.pi + pow( dl + Cf * P * A, 3)
+        bot = 3 * u * A
+
+        div = top / bot
+
+        v2 = P * div
+
+        return v2
+
+    def _calc_ttot(self,r2,v2,u,A,P,L):
+
+        t1 = r2/v2
+
+        t2top = (L-r2) * 3 * u * A
+        t2bot = 2 * math.pi * P * pow(r2,3)
+
+        ttot = t1 + (t2top/t2bot)
+
+        return ttot
+
+    def _optimize_r2(self,v2,u,A,P,L,tolerance=1e-8, max_iterations=1000):
+
+
+        invphi = (math.sqrt(5) - 1) / 2  # 1/phi
+        invphi2 = (3 - math.sqrt(5)) / 2  # 1/phi^2
+
+        a = 0
+        b = L
+
+        c = a + invphi2 * (b - a)
+        d = a + invphi * (b - a)
+        fc = self._calc_ttot(c,v2, u, A, P, L)
+        fd = self._calc_ttot(d,v2, u, A, P, L)
+
+        it = 0
+        while (b - a) > tolerance and it < max_iterations:
+            it += 1
+            if fc < fd:
+                b, d, fd = d, c, fc
+                c = a + invphi2 * (b - a)
+                fc = self._calc_ttot(c,v2, u, A, P, L)
+            else:
+                a, c, fc = c, d, fd
+                d = a + invphi * (b - a)
+                fd = self._calc_ttot(d,v2, u, A, P, L)
+
+        x = (a + b) / 2
+        logging.info(f"Completed Optimization after {it} iterations")
+        return x
+
+    def smart_dip(self, gcmd):
+
+        viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
+        resin_level_mm = self.last_resin_level
+        surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
+        buildplate_area_mm2 = self.buildplate_area
+        layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
+        pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
+        pressure_gfmm2 = pressure_mpa * .0000102
+        target_position = gcmd.get_float("TARGET", minval=0.)
+
+        toolhead = self.printer.lookup_object('toolhead')
+        pos = toolhead.get_position()
+        dip_amount = pos[2] - target_position
+
+        logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
+
+        if target_position < resin_level_mm:
+            build_area_factor = 1 / math.pow(math.e,target_position/3)
+            surface_area_mm2 += build_area_factor * buildplate_area_mm2
+            surface_area_mm2 = min(surface_area_mm2,buildplate_area_mm2)
+            logging.info(f"Offset surface area to {surface_area_mm2}, factor {build_area_factor}")
+
+        v2 = self._calc_v2(pressure_gfmm2,layerheight_mm,viscosity_cps,surface_area_mm2)
+        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_gfmm2,dip_amount)
+        r1 = dip_amount - r2
+        v1 = self._calc_v1(r2,pressure_gfmm2,viscosity_cps,surface_area_mm2)
+
+        logging.info(f"Two-Stage Retract calculated: R1: {r1} | V1: {v1} | R2: {r2} | V2: {v2}")
+
+        pos1 = pos
+        pos1[2] -= r1
+
+        pos2 = pos1
+        pos2[2] -= r2
+
+        toolhead.manual_move(pos1, v1)
+        toolhead.manual_move(pos2, v2)
+
+        pos = toolhead.get_position()
+
+        return pos
+
     def run_probe_downwards(self, gcmd):
         dip_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
         dip_amount = gcmd.get_float("Z", 0, minval=0.)
@@ -234,6 +406,10 @@ class PrinterFssProbe:
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
 
+    def cmd_ATHENA_SMART_DIP(self,gcmd):
+        self.smart_dip(gcmd)
+        gcmd.respond_raw("Z_move_comp")
+
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
         pos = self.run_probe_upwards(gcmd)
         gcmd.respond_raw("Z_move_comp")
@@ -250,7 +426,11 @@ class PrinterFssProbe:
         pos = self.run_probe_downwards(gcmd)
         gcmd.respond_raw("Z_move_comp")
         gcmd.respond_raw("ResinLevel:%.2f" % (pos[2],))
+        self.last_resin_level = pos[2]
         self.last_z_result = pos[2]
+
+    def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
+        self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
 
     def cmd_ATHENA_SET_PEELMODE_MINIMAL(self, gcmd):
         self.peelmode="minimal"
