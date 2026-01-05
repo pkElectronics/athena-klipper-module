@@ -8,6 +8,7 @@ import logging
 import math
 from typing import Callable, Tuple
 import pins
+from webhooks import Sentinel
 
 HINT_TIMEOUT = """
 If the probe did not move far enough to trigger, then
@@ -113,6 +114,7 @@ class PrinterFssProbe:
         self.gcode.register_command('ATHENA_SET_FULL_LIFT_SPEED', self.cmd_ATHENA_SET_FULL_LIFT_SPEED)
 
         self.gcode.register_command('ATHENA_SMART_DIP', self.cmd_ATHENA_SMART_DIP)
+        self.gcode.register_command('ATHENA_SMART_PEEL', self.cmd_ATHENA_SMART_PEEL)
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -221,64 +223,61 @@ class PrinterFssProbe:
 
         return pos
 
-    def smart_peel(self, gcmd):
-        lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
-        lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+    def _calc_peel_v2(self,s2_minspeed, s2_maxarea, s2_maxspeed, s2_minarea,area):
+        coeff = (s2_maxspeed - s2_minspeed) / (s2_minarea - s2_maxarea)
+        speed = coeff * (area - s2_maxarea) + s2_minspeed
+        return max(min(speed,s2_maxspeed),s2_minspeed)
 
-        pos = self._probe(lift_speed, lift_amount)
+    def smart_peel(self, gcmd):
+        lift_total = gcmd.get_float("LIFT_TOTAL", Sentinel, minval=0.)
+        stage1_lift = gcmd.get_float("STAGE1_LIFT", Sentinel, minval=0.)
+        stage1_speed_mms = gcmd.get_float("STAGE1_SPEED", Sentinel, minval=0.) / 60
+        stage1_accel = gcmd.get_float("STAGE1_ACCEL", Sentinel, minval=0.)
+        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL", Sentinel, minval=0.)
+
+        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED", Sentinel, minval=0.)
+        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA", Sentinel, minval=0.)
+
+        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED", Sentinel, minval=0.)
+        stage2_minarea = gcmd.get_float("STAGE2_MINAREA", Sentinel, minval=0.)
+
+        surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
+
+        stage2_speed_mms = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2) / 60
 
         toolhead = self.printer.lookup_object('toolhead')
 
-        if self.peelmode == "minimal":
-            if pos[2] < self.min_lift_distance:
-                logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
-                pos_actual = toolhead.get_position()
-                remaining_move = self.min_lift_distance - pos[2]
+        position = toolhead.get_position()
 
-                if remaining_move > 0.1:
-                    pos_actual[2] += remaining_move
-                    toolhead.manual_move(pos_actual, lift_speed)
-                    pos[2] = self.min_lift_distance
-                else:
-                    logging.info("Skipping due to hysteresis")
+        stage1_position = position
+        stage1_position[2] += stage1_lift
 
-        elif self.peelmode == "full":
-            logging.info("Peel finished after %f", pos[2])
-            pos_actual = toolhead.get_position()
-            remaining_move = lift_amount - pos[2]
+        stage2_position = position
+        stage2_position += lift_total
 
-            if remaining_move > 0.1:
+        kinematics = self.toolhead.get_kinematics()
 
-                kin = toolhead.get_kinematics()
-                current_accel_decel = kin.get_accel_decel()
-                new_accel_decel = current_accel_decel.copy()
-                new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
-                kin.set_accel_decel(new_accel_decel)
+        saved_accel_decel = kinematics.get_accel_decel()
+        stage1_accel_decel = saved_accel_decel.copy()
+        stage1_accel_decel["peel_accel"] = stage1_accel
+        stage1_accel_decel["peel_decel"] = stage1_accel
 
-                if pos[2] < self.min_lift_distance and self.min_lift_distance - pos[2] > 0.1:
-                    remaining_min_lift_move = self.min_lift_distance - pos[2]
+        stage2_accel_decel = saved_accel_decel.copy()
+        stage2_accel_decel["peel_accel"] = interstage_accel
 
-                    logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
+        kinematics.set_accel_decel(stage1_accel_decel)
 
-                    pos_actual[2] += remaining_min_lift_move
-                    remaining_move -= remaining_min_lift_move
-                    toolhead.manual_move(pos_actual, lift_speed)
+        toolhead.move(stage1_position,stage1_speed_mms)
 
+        kinematics.set_accel_decel(stage2_accel_decel)
 
-                if self.full_lift_speed is None or self.full_lift_speed == 0 :
-                    speed = lift_speed*2
-                else:
-                    speed = self.full_lift_speed
+        toolhead.move(stage2_position, stage2_speed_mms)
 
-                pos_actual[2] += remaining_move
-                toolhead.manual_move(pos_actual, speed)
+        kinematics.set_accel_decel(saved_accel_decel)
 
-                kin.set_accel_decel(current_accel_decel)
-                pos[2] = lift_amount
-            else:
-                logging.info("Skipping due to hysteresis")
+        toolhead.wait_moves()
 
-        return pos
+        return toolhead.get_position()
 
     def _calc_v1(self,r2,P,u,A):
 
@@ -409,6 +408,11 @@ class PrinterFssProbe:
     def cmd_ATHENA_SMART_DIP(self,gcmd):
         self.smart_dip(gcmd)
         gcmd.respond_raw("Z_move_comp")
+
+    def cmd_ATHENA_SMART_PEEL(self,gcmd):
+        self.smart_peel(gcmd)
+        gcmd.respond_raw("Z_move_comp")
+
 
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
         pos = self.run_probe_upwards(gcmd)
