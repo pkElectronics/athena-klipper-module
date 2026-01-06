@@ -244,18 +244,18 @@ class PrinterFssProbe:
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
 
         stage2_speed_mms = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2) / 60
-
+        logging.info(f"Computed S2 Speed: {stage2_speed_mms}mm/s | {stage2_speed_mms*60}mm/min")
         toolhead = self.printer.lookup_object('toolhead')
 
         position = toolhead.get_position()
 
-        stage1_position = position
+        stage1_position = position.copy()
         stage1_position[2] += stage1_lift
 
-        stage2_position = position
-        stage2_position += lift_total
+        stage2_position = position.copy()
+        stage2_position[2] += lift_total
 
-        kinematics = self.toolhead.get_kinematics()
+        kinematics = toolhead.get_kinematics()
 
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
@@ -273,28 +273,35 @@ class PrinterFssProbe:
 
         toolhead.move(stage2_position, stage2_speed_mms)
 
+        toolhead.wait_moves()
+
         kinematics.set_accel_decel(saved_accel_decel)
 
-        toolhead.wait_moves()
 
         return toolhead.get_position()
 
     def _calc_v1(self,r2,P,u,A):
 
-        top = 2 * math.pi * P * pow(r2,3)
-        bot = 3 + u + A
+        top = 2 * math.pi * P * r2**3
+        bot = 3 * u * A
 
         return top/bot
 
     def _calc_v2(self,P,dl,u,A):
-        Cf = 0.0362 - ( 9.81 * pow(10,-8))
+        d_d =( (0.0362 * P * A) - ( 9.81 * 10**-8 * (P*A)**2 )) / 1000
 
-        top = 2 * math.pi + pow( dl + Cf * P * A, 3)
+        logging.info(f"Calc V2: d_d: {d_d} | P: {P} | dl: {dl} | u: {u} | A: {A}")
+
+        top = 2 * math.pi * ( dl + d_d)**3
         bot = 3 * u * A
+
+        logging.info(f"Calc V2: Top: {top} | Bot: {bot}")
 
         div = top / bot
 
         v2 = P * div
+
+        logging.info(f"Calc V2: div: {div} | v2: {v2}")
 
         return v2
 
@@ -302,8 +309,8 @@ class PrinterFssProbe:
 
         t1 = r2/v2
 
-        t2top = (L-r2) * 3 * u * A
-        t2bot = 2 * math.pi * P * pow(r2,3)
+        t2top = (L-r2)
+        t2bot = self._calc_v1(r2,P,u,A)
 
         ttot = t1 + (t2top/t2bot)
 
@@ -340,14 +347,16 @@ class PrinterFssProbe:
         return x
 
     def smart_dip(self, gcmd):
+        mPa_to_gfmm2 = .0000102
 
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
+        viscosity_gfmm2s = viscosity_cps * mPa_to_gfmm2
         resin_level_mm = self.last_resin_level
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
         buildplate_area_mm2 = self.buildplate_area
         layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
         pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
-        pressure_gfmm2 = pressure_mpa * .0000102
+        pressure_gfmm2 = pressure_mpa * mPa_to_gfmm2
         target_position = gcmd.get_float("TARGET", minval=0.)
 
         toolhead = self.printer.lookup_object('toolhead')
@@ -362,10 +371,10 @@ class PrinterFssProbe:
             surface_area_mm2 = min(surface_area_mm2,buildplate_area_mm2)
             logging.info(f"Offset surface area to {surface_area_mm2}, factor {build_area_factor}")
 
-        v2 = self._calc_v2(pressure_gfmm2,layerheight_mm,viscosity_cps,surface_area_mm2)
-        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_gfmm2,dip_amount)
+        v2 = self._calc_v2(pressure_gfmm2,layerheight_mm,viscosity_gfmm2s,surface_area_mm2)
+        r2 = self._optimize_r2(v2,viscosity_gfmm2s,surface_area_mm2, pressure_gfmm2,dip_amount)
         r1 = dip_amount - r2
-        v1 = self._calc_v1(r2,pressure_gfmm2,viscosity_cps,surface_area_mm2)
+        v1 = self._calc_v1(r2,pressure_gfmm2,viscosity_gfmm2s,surface_area_mm2)
 
         logging.info(f"Two-Stage Retract calculated: R1: {r1} | V1: {v1} | R2: {r2} | V2: {v2}")
 
@@ -375,9 +384,9 @@ class PrinterFssProbe:
         pos2 = pos1
         pos2[2] -= r2
 
-        toolhead.manual_move(pos1, v1)
-        toolhead.manual_move(pos2, v2)
-
+        toolhead.move(pos1, v1)
+        toolhead.move(pos2, v2)
+        toolhead.wait_moves()
         pos = toolhead.get_position()
 
         return pos
