@@ -73,6 +73,7 @@ class ZonlyKinematics:
         self.peel_decel = data["peel_decel"]
         self.dip_accel = data["dip_accel"]
         self.dip_decel = data["dip_decel"]
+        logging.info(f"Update AccelDecel - PA: {self.peel_accel} | PD: {self.peel_decel} | DA: {self.dip_accel} | DD: {self.dip_decel}")
 
     def calc_position(self, stepper_positions):
         return [0, 0, stepper_positions[self.z_rail.get_name()]]
@@ -156,6 +157,8 @@ class ZonlyKinematics:
         else:
             move_accel = self.peel_accel
             move_decel = self.peel_decel
+
+        logging.info(f"Commanded AccelDecel: A: {move_accel} D: {move_decel}")
 
         z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
 
