@@ -229,17 +229,17 @@ class PrinterFssProbe:
         return max(min(speed,s2_maxspeed),s2_minspeed)
 
     def smart_peel(self, gcmd):
-        lift_total = gcmd.get_float("LIFT_TOTAL", Sentinel, minval=0.)
-        stage1_lift = gcmd.get_float("STAGE1_LIFT", Sentinel, minval=0.)
-        stage1_speed_mms = gcmd.get_float("STAGE1_SPEED", Sentinel, minval=0.) / 60
-        stage1_accel = gcmd.get_float("STAGE1_ACCEL", Sentinel, minval=0.)
-        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL", Sentinel, minval=0.)
+        lift_total = gcmd.get_float("LIFT_TOTAL",  minval=0.)
+        stage1_lift = gcmd.get_float("STAGE1_LIFT",  minval=0.)
+        stage1_speed_mms = gcmd.get_float("STAGE1_SPEED",  minval=0.) / 60
+        stage1_accel = gcmd.get_float("STAGE1_ACCEL",  minval=0.)
+        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL",  minval=0.)
 
-        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED", Sentinel, minval=0.)
-        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA", Sentinel, minval=0.)
+        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED",  minval=0.)
+        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA",  minval=0.)
 
-        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED", Sentinel, minval=0.)
-        stage2_minarea = gcmd.get_float("STAGE2_MINAREA", Sentinel, minval=0.)
+        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED",  minval=0.)
+        stage2_minarea = gcmd.get_float("STAGE2_MINAREA",  minval=0.)
 
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
 
@@ -280,15 +280,18 @@ class PrinterFssProbe:
 
         return toolhead.get_position()
 
-    def _calc_v1(self,r2,P,u,A):
+    def _calc_v1(self,r2,P,u,A,v1p1, v1p2):
 
-        top = 2 * math.pi * P * r2**3
+        top = v1p1 * 2 * math.pi * P * (v1p2*r2)**3
         bot = 3 * u * A
 
         return top/bot
 
-    def _calc_v2(self,P,dl,u,A):
-        d_d =( (0.0362 * P * A) - ( 9.81 * 10**-8 * (P*A)**2 )) / 1000
+    def _calc_v2(self,P,dl,u,A,v2p1):
+        mPa_to_gfmm2 = .0000102
+        P_gfmm2 = P * mPa_to_gfmm2
+
+        d_d =( (0.0362 * P_gfmm2 * A) - ( 9.81 * 10**-8 * (P_gfmm2*A)**2 )) / 1000
 
         logging.info(f"Calc V2: d_d: {d_d} | P: {P} | dl: {dl} | u: {u} | A: {A}")
 
@@ -300,7 +303,7 @@ class PrinterFssProbe:
         div = top / bot
 
         v2 = P * div
-
+        v2 /= v2p1
         logging.info(f"Calc V2: div: {div} | v2: {v2}")
 
         return v2
@@ -347,17 +350,20 @@ class PrinterFssProbe:
         return x
 
     def smart_dip(self, gcmd):
-        mPa_to_gfmm2 = .0000102
 
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
-        viscosity_gfmm2s = viscosity_cps * mPa_to_gfmm2
         resin_level_mm = self.last_resin_level
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
         buildplate_area_mm2 = self.buildplate_area
         layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
         pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
-        pressure_gfmm2 = pressure_mpa * mPa_to_gfmm2
         target_position = gcmd.get_float("TARGET", minval=0.)
+
+        v1p1 = gcmd.get_float("V1P1", 8, minval=1)
+        v1p2 = gcmd.get_float("V1P2", 1.5, minval=1)
+        v2p1 = gcmd.get_float("V2P1", 2, minval=0)
+
+        vmin = gcmd.get_float("VMIN", 2, minval=0)
 
         toolhead = self.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
@@ -365,16 +371,17 @@ class PrinterFssProbe:
 
         logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
 
-        if target_position < resin_level_mm:
-            build_area_factor = 1 / math.pow(math.e,target_position/3)
+        if target_position < (2 + 3*(viscosity_cps/10000)):
+        # if target_position < resin_level_mm:
+            build_area_factor = 1 / math.pow(math.e,target_position)
             surface_area_mm2 += build_area_factor * buildplate_area_mm2
             surface_area_mm2 = min(surface_area_mm2,buildplate_area_mm2)
             logging.info(f"Offset surface area to {surface_area_mm2}, factor {build_area_factor}")
 
-        v2 = self._calc_v2(pressure_gfmm2,layerheight_mm,viscosity_gfmm2s,surface_area_mm2)
-        r2 = self._optimize_r2(v2,viscosity_gfmm2s,surface_area_mm2, pressure_gfmm2,dip_amount)
+        v2 = max(vmin,self._calc_v2(pressure_mpa,layerheight_mm,viscosity_cps,surface_area_mm2,v2p1))
+        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_mpa,dip_amount)
         r1 = dip_amount - r2
-        v1 = self._calc_v1(r2,pressure_gfmm2,viscosity_gfmm2s,surface_area_mm2)
+        v1 = max(vmin,self._calc_v1(r2,pressure_mpa,viscosity_cps,surface_area_mm2,v1p1,v1p2))
 
         logging.info(f"Two-Stage Retract calculated: R1: {r1} | V1: {v1} | R2: {r2} | V2: {v2}")
 
