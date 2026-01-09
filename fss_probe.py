@@ -228,23 +228,42 @@ class PrinterFssProbe:
         speed = coeff * (area - s2_maxarea) + s2_minspeed
         return max(min(speed,s2_maxspeed),s2_minspeed)
 
+    def _calc_peel_v1(self,s1_minspeed, s1_maxarea, s1_maxspeed, s1_minarea,area):
+        coeff = (s1_maxspeed - s1_minspeed) / (s1_minarea - s1_maxarea)
+        speedv1 = coeff * (area - s1_maxarea) + s1_minspeed
+        return max(min(speedv1,s1_maxspeed),s1_minspeed)
+
+    def _calc_peel_l1(self,s1_minlift, s1_maxarea, s1_maxlift, s1_minarea,area):
+        coeff = (s1_maxlift - s1_minlift) / (s1_minarea - s1_maxarea)
+        lifts1 = coeff * (area - s1_maxarea) + s1_minlift
+        return max(min(lifts1,s1_maxlift),s1_minlift)
+
     def smart_peel(self, gcmd):
-        lift_total = gcmd.get_float("LIFT_TOTAL",  minval=0.)
-        stage1_lift = gcmd.get_float("STAGE1_LIFT",  minval=0.)
-        stage1_speed_mms = gcmd.get_float("STAGE1_SPEED",  minval=0.) / 60
-        stage1_accel = gcmd.get_float("STAGE1_ACCEL",  minval=0.)
-        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL",  minval=0.)
+        lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
+        stage1_minlift = gcmd.get_float("STAGE1_MINLIFT", above=0.)
+        stage1_maxlift = gcmd.get_float("STAGE1_MAXLIFT", above=0.)
+        stage1_minspeed = gcmd.get_float("STAGE1_MINSPEED", above=0.) / 60
+        stage1_maxspeed = gcmd.get_float("STAGE1_MAXSPEED", above=0.) / 60
+        stage1_accel = gcmd.get_float("STAGE1_ACCEL", above=0.)
+        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL", above=0.)
 
-        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED",  minval=0.)
-        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA",  minval=0.)
+        stage1_maxarea = gcmd.get_float("STAGE1_MAXAREA", above=0.)
+        stage1_minarea = gcmd.get_float("STAGE1_MINAREA", above=0.)
 
-        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED",  minval=0.)
-        stage2_minarea = gcmd.get_float("STAGE2_MINAREA",  minval=0.)
+        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED", above=0.) /60
+        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA", above=0.)
+
+        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED", above=0.) /60
+        stage2_minarea = gcmd.get_float("STAGE2_MINAREA", above=0.)
 
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
 
-        stage2_speed_mms = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2) / 60
-        logging.info(f"Computed S2 Speed: {stage2_speed_mms}mm/s | {stage2_speed_mms*60}mm/min")
+        stage1_lift = self._calc_peel_l1(stage1_minlift,stage1_maxarea,stage1_maxlift,stage1_minarea,surface_area_mm2)
+
+        stage1_speed = self._calc_peel_v1(stage1_minspeed,stage1_maxarea,stage1_maxspeed,stage1_minarea,surface_area_mm2)
+
+        stage2_speed = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2)
+        logging.info(f"Computed S2 Speed: {stage2_speed}mm/s | {stage2_speed*60}mm/min")
         toolhead = self.printer.lookup_object('toolhead')
 
         position = toolhead.get_position()
@@ -252,7 +271,7 @@ class PrinterFssProbe:
         stage1_position = position.copy()
         stage1_position[2] += stage1_lift
 
-        stage2_position = position.copy()
+        stage2_position = stage1_position
         stage2_position[2] += lift_total
 
         kinematics = toolhead.get_kinematics()
@@ -267,11 +286,11 @@ class PrinterFssProbe:
 
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        toolhead.move(stage1_position,stage1_speed_mms)
+        toolhead.move(stage1_position,stage1_speed)
 
         kinematics.set_accel_decel(stage2_accel_decel)
 
-        toolhead.move(stage2_position, stage2_speed_mms)
+        toolhead.move(stage2_position, stage2_speed)
 
         toolhead.wait_moves()
 
@@ -287,9 +306,7 @@ class PrinterFssProbe:
 
         return top/bot
 
-    def _calc_v2(self,P,dl,u,A,v2p1):
-        mPa_to_gfmm2 = .0000102
-        P_gfmm2 = P * mPa_to_gfmm2
+    def _calc_v2(self,P,P_gfmm2,dl,u,A,v2p1):
 
         d_d =( (0.0362 * P_gfmm2 * A) - ( 9.81 * 10**-8 * (P_gfmm2*A)**2 )) / 1000
 
@@ -350,20 +367,22 @@ class PrinterFssProbe:
         return x
 
     def smart_dip(self, gcmd):
-
+        mPa_to_gfmm2 = .0000102
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
         resin_level_mm = self.last_resin_level
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
         buildplate_area_mm2 = self.buildplate_area
         layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
         pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
+        pressure_gfmm2 = pressure_mpa * mPa_to_gfmm2
+
         target_position = gcmd.get_float("TARGET", minval=0.)
 
         v1p1 = gcmd.get_float("V1P1", 8, minval=1)
         v1p2 = gcmd.get_float("V1P2", 1.5, minval=1)
         v2p1 = gcmd.get_float("V2P1", 2, minval=0)
 
-        vmin = gcmd.get_float("VMIN", 2, minval=0)
+        vmin = gcmd.get_float("VMIN", 2, minval=0) / 60
 
         toolhead = self.printer.lookup_object('toolhead')
         pos = toolhead.get_position()
@@ -378,7 +397,11 @@ class PrinterFssProbe:
             surface_area_mm2 = min(surface_area_mm2,buildplate_area_mm2)
             logging.info(f"Offset surface area to {surface_area_mm2}, factor {build_area_factor}")
 
-        v2 = max(vmin,self._calc_v2(pressure_mpa,layerheight_mm,viscosity_cps,surface_area_mm2,v2p1))
+        if (pressure_gfmm2*surface_area_mm2 > 20000):		# function to limit the maximum force the printer will try to achieve so it doesnt skip steps.
+            pressure_gfmm2 = 30000/surface_area_mm2
+            pressure_mpa = pressure_gfmm2/mPa_to_gfmm2
+
+        v2 = max(vmin,self._calc_v2(pressure_mpa,pressure_gfmm2,layerheight_mm,viscosity_cps,surface_area_mm2,v2p1))
         r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_mpa,dip_amount)
         r1 = dip_amount - r2
         v1 = max(vmin,self._calc_v1(r2,pressure_mpa,viscosity_cps,surface_area_mm2,v1p1,v1p2))
