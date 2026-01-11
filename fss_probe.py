@@ -264,6 +264,8 @@ class PrinterFssProbe:
 
         stage2_speed = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2)
         logging.info(f"Computed S2 Speed: {stage2_speed}mm/s | {stage2_speed*60}mm/min")
+        gcmd.respond_raw(f"Smart Peel Computed Values - S1 Lift Distance: {stage1_lift}mm | S1 Lift Speed: {stage1_speed*60}mm/min | S2 Lift Speed: {stage2_speed*60}mm/min")
+
         toolhead = self.printer.lookup_object('toolhead')
 
         position = toolhead.get_position()
@@ -407,6 +409,7 @@ class PrinterFssProbe:
         v1 = max(vmin,self._calc_v1(r2,pressure_mpa,viscosity_cps,surface_area_mm2,v1p1,v1p2))
 
         logging.info(f"Two-Stage Retract calculated: R1: {r1} | V1: {v1} | R2: {r2} | V2: {v2}")
+        gcmd.respond_raw(f"Smart Retract Computed Values - S1 Distance: {r1}mm | S1 Speed: {v1*60}mm/min | S2 Distance: {r2}mm | S2 Lift Speed: {v2*60}mm/min")
 
         pos1 = pos
         pos1[2] -= r1
