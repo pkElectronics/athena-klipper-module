@@ -327,18 +327,18 @@ class PrinterFssProbe:
 
         return v2
 
-    def _calc_ttot(self,r2,v2,u,A,P,L):
+    def _calc_ttot(self,r2,v2,u,A,P,L,v1p1,v1p2):
 
         t1 = r2/v2
 
         t2top = (L-r2)
-        t2bot = self._calc_v1(r2,P,u,A)
+        t2bot = self._calc_v1(r2,P,u,A,v1p1,v1p2)
 
         ttot = t1 + (t2top/t2bot)
 
         return ttot
 
-    def _optimize_r2(self,v2,u,A,P,L,tolerance=1e-8, max_iterations=1000):
+    def _optimize_r2(self,v2,u,A,P,L,v1p1,v1p2,tolerance=1e-8, max_iterations=1000):
 
 
         invphi = (math.sqrt(5) - 1) / 2  # 1/phi
@@ -349,8 +349,8 @@ class PrinterFssProbe:
 
         c = a + invphi2 * (b - a)
         d = a + invphi * (b - a)
-        fc = self._calc_ttot(c,v2, u, A, P, L)
-        fd = self._calc_ttot(d,v2, u, A, P, L)
+        fc = self._calc_ttot(c,v2, u, A, P, L,v1p1,v1p2)
+        fd = self._calc_ttot(d,v2, u, A, P, L,v1p1,v1p2)
 
         it = 0
         while (b - a) > tolerance and it < max_iterations:
@@ -358,11 +358,11 @@ class PrinterFssProbe:
             if fc < fd:
                 b, d, fd = d, c, fc
                 c = a + invphi2 * (b - a)
-                fc = self._calc_ttot(c,v2, u, A, P, L)
+                fc = self._calc_ttot(c,v2, u, A, P, L,v1p1,v1p2)
             else:
                 a, c, fc = c, d, fd
                 d = a + invphi * (b - a)
-                fd = self._calc_ttot(d,v2, u, A, P, L)
+                fd = self._calc_ttot(d,v2, u, A, P, L,v1p1,v1p2)
 
         x = (a + b) / 2
         logging.info(f"Completed Optimization after {it} iterations")
@@ -404,7 +404,7 @@ class PrinterFssProbe:
             pressure_mpa = pressure_gfmm2/mPa_to_gfmm2
 
         v2 = max(vmin,self._calc_v2(pressure_mpa,pressure_gfmm2,layerheight_mm,viscosity_cps,surface_area_mm2,v2p1))
-        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_mpa,dip_amount)
+        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_mpa,dip_amount,v1p1,v1p2)
         r1 = dip_amount - r2
         v1 = max(vmin,self._calc_v1(r2,pressure_mpa,viscosity_cps,surface_area_mm2,v1p1,v1p2))
 
