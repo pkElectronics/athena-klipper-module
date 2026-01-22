@@ -58,6 +58,8 @@ class PrinterFssProbe:
         self.exposure_active_flag = False
         self.uvled_pwm_cutoff_value = 0.25
 
+        self.z_offset = 0.0
+
         self.reactor = self.printer.get_reactor()
 
 
@@ -105,6 +107,9 @@ class PrinterFssProbe:
         self.gcode.register_command('SET_EXPOSE_CALIBRATION', self.cmd_SET_EXPOSE_CALIBRATION,
                                     desc=self.cmd_SET_EXPOSE_CALIBRATION)
 
+        self.gcode.register_command('SET_Z_OFFSET', self.cmd_SET_Z_OFFSET,
+                                    desc=self.cmd_SET_Z_OFFSET_HELP)
+
         self.gcode.register_command('ATHENA_SET_PEELMODE_MINIMAL', self.cmd_ATHENA_SET_PEELMODE_MINIMAL)
 
         self.gcode.register_command('ATHENA_SET_PEELMODE_FULL', self.cmd_ATHENA_SET_PEELMODE_FULL)
@@ -128,6 +133,17 @@ class PrinterFssProbe:
             return gcmd.get_float("F", self.lift_speed, above=0.)
         return self.lift_speed
 
+    def _move(self, position, speed):
+        toolhead = self.printer.lookup_object('toolhead')
+        position[2] += self.z_offset
+        toolhead.move(position,speed)
+
+    def _get_position(self):
+        toolhead = self.printer.lookup_object('toolhead')
+        p = toolhead.get_position()
+        p[2] -= self.z_offset
+        return p
+
     def _probe(self, speed, amount):
         toolhead = self.printer.lookup_object('toolhead')
         curtime = self.printer.get_reactor().monotonic()
@@ -135,9 +151,9 @@ class PrinterFssProbe:
             raise self.printer.command_error("Must home before probe")
 
         phoming = self.printer.lookup_object('homing')
-        pos = toolhead.get_position()
+        pos = self._get_position()
         opos = pos[2]
-        pos[2] += amount
+        pos[2] += amount + self.z_offset
         epos = [pos[0], pos[1], pos[2]]
         try:
             epos = phoming.probing_move(self.mcu_probe, pos, speed)
@@ -151,12 +167,12 @@ class PrinterFssProbe:
 
             elif "No trigger on probe after full movement" in reason:
                 # in our case this is not an error but desired behaviorcr
-                epos = toolhead.get_position()
+                epos = self._get_position()
                 epos[2] = amount
 
             elif "Probe triggered prior to movement" in reason:
-                toolhead.move(pos, speed)
-                epos = toolhead.get_position()
+                self._move(pos, speed)
+                epos = self._get_position()
                 epos[2] = amount
 
             else:
@@ -175,19 +191,20 @@ class PrinterFssProbe:
         if self.peelmode == "minimal":
             if pos[2] < self.min_lift_distance:
                 logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
-                pos_actual = toolhead.get_position()
+                pos_actual = self._get_position()
                 remaining_move = self.min_lift_distance - pos[2]
 
                 if remaining_move > 0.1:
                     pos_actual[2] += remaining_move
-                    toolhead.manual_move(pos_actual, lift_speed)
+                    self._move(pos_actual, lift_speed)
                     pos[2] = self.min_lift_distance
+                    toolhead.wait_moves()
                 else:
                     logging.info("Skipping due to hysteresis")
 
         elif self.peelmode == "full":
             logging.info("Peel finished after %f", pos[2])
-            pos_actual = toolhead.get_position()
+            pos_actual = self._get_position()
             remaining_move = lift_amount - pos[2]
 
             if remaining_move > 0.1:
@@ -205,7 +222,7 @@ class PrinterFssProbe:
 
                     pos_actual[2] += remaining_min_lift_move
                     remaining_move -= remaining_min_lift_move
-                    toolhead.manual_move(pos_actual, lift_speed)
+                    self._move(pos_actual, lift_speed)
 
 
                 if self.full_lift_speed is None or self.full_lift_speed == 0 :
@@ -214,10 +231,12 @@ class PrinterFssProbe:
                     speed = self.full_lift_speed
 
                 pos_actual[2] += remaining_move
-                toolhead.manual_move(pos_actual, speed)
+                self._move(pos_actual, speed)
 
                 kin.set_accel_decel(current_accel_decel)
                 pos[2] = lift_amount
+
+                toolhead.wait_moves()
             else:
                 logging.info("Skipping due to hysteresis")
 
@@ -234,8 +253,8 @@ class PrinterFssProbe:
         return max(min(speedv1,s1_maxspeed),s1_minspeed)
 
     def _calc_peel_l1(self,s1_minlift, s1_maxarea, s1_maxlift, s1_minarea,area):
-        coeff = (s1_maxlift - s1_minlift) / (s1_minarea - s1_maxarea)
-        lifts1 = coeff * (area - s1_maxarea) + s1_minlift
+        coeff = (s1_maxlift - s1_minlift) / (s1_maxarea - s1_minarea)
+        lifts1 = coeff * (area - s1_minarea) + s1_minlift
         return max(min(lifts1,s1_maxlift),s1_minlift)
 
     def smart_peel(self, gcmd):
@@ -268,12 +287,12 @@ class PrinterFssProbe:
 
         toolhead = self.printer.lookup_object('toolhead')
 
-        position = toolhead.get_position()
+        position = self._get_position()
 
         stage1_position = position.copy()
         stage1_position[2] += stage1_lift
 
-        stage2_position = stage1_position
+        stage2_position = position.copy()
         stage2_position[2] += lift_total
 
         kinematics = toolhead.get_kinematics()
@@ -288,87 +307,30 @@ class PrinterFssProbe:
 
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        toolhead.move(stage1_position,stage1_speed)
+        self._move(stage1_position,stage1_speed)
 
         kinematics.set_accel_decel(stage2_accel_decel)
 
-        toolhead.move(stage2_position, stage2_speed)
+        self._move(stage2_position, stage2_speed)
 
         toolhead.wait_moves()
 
         kinematics.set_accel_decel(saved_accel_decel)
 
 
-        return toolhead.get_position()
-
-    def _calc_v1(self,r2,P,u,A,v1p1, v1p2):
-
-        top = v1p1 * 2 * math.pi * P * (v1p2*r2)**3
-        bot = 3 * u * A
-
-        return top/bot
-
-    def _calc_v2(self,P,P_gfmm2,dl,u,A,v2p1):
-
-        d_d =( (0.0362 * P_gfmm2 * A) - ( 9.81 * 10**-8 * (P_gfmm2*A)**2 )) / 1000
-
-        logging.info(f"Calc V2: d_d: {d_d} | P: {P} | dl: {dl} | u: {u} | A: {A}")
-
-        top = 2 * math.pi * ( dl + d_d)**3
-        bot = 3 * u * A
-
-        logging.info(f"Calc V2: Top: {top} | Bot: {bot}")
-
-        div = top / bot
-
-        v2 = P * div
-        v2 /= v2p1
-        logging.info(f"Calc V2: div: {div} | v2: {v2}")
-
-        return v2
-
-    def _calc_ttot(self,r2,v2,u,A,P,L,v1p1,v1p2):
-
-        t1 = r2/v2
-
-        t2top = (L-r2)
-        t2bot = self._calc_v1(r2,P,u,A,v1p1,v1p2)
-
-        ttot = t1 + (t2top/t2bot)
-
-        return ttot
-
-    def _optimize_r2(self,v2,u,A,P,L,v1p1,v1p2,tolerance=1e-8, max_iterations=1000):
+        return self._get_position()
 
 
-        invphi = (math.sqrt(5) - 1) / 2  # 1/phi
-        invphi2 = (3 - math.sqrt(5)) / 2  # 1/phi^2
 
-        a = 0
-        b = L
+    def _calc_v(self,P_mpa,dl,u,A,d_d):
+        v1 = ((P_mpa*math.pi*2*(d_d+dl)**3)/(3*u*A))*(600*(dl+d_d)/(math.sqrt(A/math.pi)))
+        v = min(max(v1,0.01),10)
+        return v
 
-        c = a + invphi2 * (b - a)
-        d = a + invphi * (b - a)
-        fc = self._calc_ttot(c,v2, u, A, P, L,v1p1,v1p2)
-        fd = self._calc_ttot(d,v2, u, A, P, L,v1p1,v1p2)
-
-        it = 0
-        while (b - a) > tolerance and it < max_iterations:
-            it += 1
-            if fc < fd:
-                b, d, fd = d, c, fc
-                c = a + invphi2 * (b - a)
-                fc = self._calc_ttot(c,v2, u, A, P, L,v1p1,v1p2)
-            else:
-                a, c, fc = c, d, fd
-                d = a + invphi * (b - a)
-                fd = self._calc_ttot(d,v2, u, A, P, L,v1p1,v1p2)
-
-        x = (a + b) / 2
-        logging.info(f"Completed Optimization after {it} iterations")
-        return x
 
     def smart_dip(self, gcmd):
+        #this version is an approximation of a constant pressure velocity profile using a similar scheme as a g2 command
+        logging.info(f"into smart_dip command")
         mPa_to_gfmm2 = .0000102
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
         resin_level_mm = self.last_resin_level
@@ -380,47 +342,51 @@ class PrinterFssProbe:
 
         target_position = gcmd.get_float("TARGET", minval=0.)
 
-        v1p1 = gcmd.get_float("V1P1", 8, minval=1)
-        v1p2 = gcmd.get_float("V1P2", 1.5, minval=1)
-        v2p1 = gcmd.get_float("V2P1", 2, minval=0)
-
-        vmin = gcmd.get_float("VMIN", 2, minval=0) / 60
+        # constant factors for generating velocity profile
+        resolution = 0.01 # similar to g2 gcode
+        vmin = 0.02 # minimum velocity 1.2mm/min
+        vmax = 10   # maximum velocity 600mm/min
+        max_force = 20000 #maximum force a retract move will try to achieve
+        viscosity_coefficient = 60   #constant for movements outside of squeezing flow regime
+        pressure_mpa_maxforce = (max_force/buildplate_area_mm2)/mPa_to_gfmm2    #pressure on build plate corresponding to maximum force
 
         toolhead = self.printer.lookup_object('toolhead')
-        pos = toolhead.get_position()
+        pos = self._get_position()
         dip_amount = pos[2] - target_position
-
+        d_d = max(0.1,(0.218*((surface_area_mm2*pressure_gfmm2)**0.821)) / 1000)    # maximum arm deflection from retract force on layer area
+        d_d2 = max(0.1,(0.218*((max_force)**0.821)) / 1000) # maximum arm deflection due to force on build plate
         logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
 
-        if target_position < (2 + 3*(viscosity_cps/10000)):
-        # if target_position < resin_level_mm:
-            build_area_factor = 1 / math.pow(math.e,target_position)
-            surface_area_mm2 += build_area_factor * buildplate_area_mm2
-            surface_area_mm2 = min(surface_area_mm2,buildplate_area_mm2)
-            logging.info(f"Offset surface area to {surface_area_mm2}, factor {build_area_factor}")
 
-        if (pressure_gfmm2*surface_area_mm2 > 20000):		# function to limit the maximum force the printer will try to achieve so it doesnt skip steps.
-            pressure_gfmm2 = 30000/surface_area_mm2
-            pressure_mpa = pressure_gfmm2/mPa_to_gfmm2
+        segments = max(1., math.floor(dip_amount / resolution))
+        if (target_position < resin_level_mm):
+            for i in range(1, int(segments) + 1):
+                step_pos = [0. , 0. , 0. , 0.]
+                step_pos[2] =  pos[2] - (i * resolution)
+                di = dip_amount + layerheight_mm - (i*resolution)
+                # velocity = minimum of velocity for maximum part pressure or velocity corresponding with maximum force
+                v1 = (6*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
+                v2 = (6*(pressure_mpa_maxforce*math.pi*2*(d_d2+di)**3)/(3*viscosity_cps*buildplate_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d2)/(math.sqrt(buildplate_area_mm2/math.pi)))))
+                v3 = min(v1,v2)
+                velocity = min(max(v3,vmin),vmax)
+                self._move(step_pos,velocity)
 
-        v2 = max(vmin,self._calc_v2(pressure_mpa,pressure_gfmm2,layerheight_mm,viscosity_cps,surface_area_mm2,v2p1))
-        r2 = self._optimize_r2(v2,viscosity_cps,surface_area_mm2, pressure_mpa,dip_amount,v1p1,v1p2)
-        r1 = dip_amount - r2
-        v1 = max(vmin,self._calc_v1(r2,pressure_mpa,viscosity_cps,surface_area_mm2,v1p1,v1p2))
-
-        logging.info(f"Two-Stage Retract calculated: R1: {r1} | V1: {v1} | R2: {r2} | V2: {v2}")
-        gcmd.respond_raw(f"Smart Retract Computed Values - S1 Distance: {r1}mm | S1 Speed: {v1*60}mm/min | S2 Distance: {r2}mm | S2 Lift Speed: {v2*60}mm/min")
-
-        pos1 = pos
-        pos1[2] -= r1
-
-        pos2 = pos1
-        pos2[2] -= r2
-
-        toolhead.move(pos1, v1)
-        toolhead.move(pos2, v2)
+        else:
+            for i in range(1, int(segments) + 1):
+                step_pos = [0. , 0. , 0. , 0.]
+                step_pos[2] =  pos[2] - (i * resolution)
+                di = dip_amount + layerheight_mm - (i*resolution)
+                v1 = (6*(pressure_mpa*math.pi*2*(d_d+(di))**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
+                velocity = min(max(v1,vmin),vmax)
+                self._move(step_pos,velocity)
         toolhead.wait_moves()
-        pos = toolhead.get_position()
+        pos = self._get_position()
+
+        # function that removes any error on final position due to segmentation resolution
+        if (pos[2] != target_position):
+            self._move([0,0,target_position,0],velocity)
+            toolhead.wait_moves()
+            pos = self._get_position()
 
         return pos
 
@@ -429,7 +395,7 @@ class PrinterFssProbe:
         dip_amount = gcmd.get_float("Z", 0, minval=0.)
         move_absolute = gcmd.get_int("ABS",0, minval=0, maxval=1)
         toolhead = self.printer.lookup_object('toolhead')
-        pos = toolhead.get_position()
+        pos = self._get_position()
 
         if move_absolute == 1:
             dip_amount = (pos[2] - dip_amount) *-1
@@ -441,7 +407,7 @@ class PrinterFssProbe:
 
         pos = self._probe(dip_speed, dip_amount)  # probe to zero
 
-        pos = toolhead.get_position()
+        pos = self._get_position()
 
         return pos
 
@@ -474,6 +440,10 @@ class PrinterFssProbe:
         gcmd.respond_raw("ResinLevel:%.2f" % (pos[2],))
         self.last_resin_level = pos[2]
         self.last_z_result = pos[2]
+
+    def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
+        self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
+
 
     def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
         self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
@@ -519,6 +489,10 @@ class PrinterFssProbe:
     cmd_EXPOSE_help = "Sets the exposure power calibration value"
     def cmd_SET_EXPOSE_CALIBRATION(self,gcmd):
         self.exposure_calibration = gcmd.get_float("VALUE", 1 , above=0.)
+
+    cmd_SET_Z_OFFSET_help = "Sets the z-offset for probing and smart moves"
+    def cmd_SET_Z_OFFSET(self,gcmd):
+        self.z_offset = gcmd.get_float("OFFSET", 0 , minval=0. )
 
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
