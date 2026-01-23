@@ -343,12 +343,15 @@ class PrinterFssProbe:
         target_position = gcmd.get_float("TARGET", minval=0.)
 
         # constant factors for generating velocity profile
-        resolution = 0.01 # similar to g2 gcode
-        vmin = 0.02 # minimum velocity 1.2mm/min
+        resolution = 0.005 # similar to g2 gcode
+        vmin = 0.005 # minimum velocity 0.3mm/min
         vmax = 10   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
         viscosity_coefficient = 60   #constant for movements outside of squeezing flow regime
-        pressure_mpa_maxforce = (max_force/buildplate_area_mm2)/mPa_to_gfmm2    #pressure on build plate corresponding to maximum force
+        e_plate_area = buildplate_area_mm2 * 0.75 # the circular eqiuvalent area which produces the same constant pressure curve
+        pressure_mpa_maxforce = (max_force/e_plate_area)/mPa_to_gfmm2    #pressure on build plate corresponding to maximum force
+        ilaC = 0.5 #Initial layer accuracy coefficient, determines the amount of overshoot on the first layers for better layer thickness accuracy, increases first layer time
+
 
         toolhead = self.printer.lookup_object('toolhead')
         pos = self._get_position()
@@ -357,16 +360,20 @@ class PrinterFssProbe:
         d_d2 = max(0.1,(0.218*((max_force)**0.821)) / 1000) # maximum arm deflection due to force on build plate
         logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
 
-
-        segments = max(1., math.floor(dip_amount / resolution))
+        if (target_position < 0.5):
+            deflection = ((d_d2*ilaC)*(1-(target_position*2))+((d_d*ilaC)*(target_position*2)))
+            segments = max(1., math.floor((dip_amount+deflection) / resolution))
+        else:
+            deflection = (d_d*ilaC)
+            segments = max(1., math.floor((dip_amount+deflection) / resolution))
         if (target_position < resin_level_mm):
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
                 step_pos[2] =  pos[2] - (i * resolution)
                 di = dip_amount + layerheight_mm - (i*resolution)
                 # velocity = minimum of velocity for maximum part pressure or velocity corresponding with maximum force
-                v1 = (6*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
-                v2 = (6*(pressure_mpa_maxforce*math.pi*2*(d_d2+di)**3)/(3*viscosity_cps*buildplate_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d2)/(math.sqrt(buildplate_area_mm2/math.pi)))))
+                v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
+                v2 = ((pressure_mpa_maxforce*math.pi*2*(d_d2+di)**3)/(3*viscosity_cps*e_plate_area))*(1 + (viscosity_coefficient*math.atan(((di)+d_d2)/(math.sqrt(e_plate_area/math.pi)))))
                 v3 = min(v1,v2)
                 velocity = min(max(v3,vmin),vmax)
                 self._move(step_pos,velocity)
@@ -376,17 +383,13 @@ class PrinterFssProbe:
                 step_pos = [0. , 0. , 0. , 0.]
                 step_pos[2] =  pos[2] - (i * resolution)
                 di = dip_amount + layerheight_mm - (i*resolution)
-                v1 = (6*(pressure_mpa*math.pi*2*(d_d+(di))**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
+                v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 velocity = min(max(v1,vmin),vmax)
                 self._move(step_pos,velocity)
+
+        self._move([0,0,target_position,0],5)
         toolhead.wait_moves()
         pos = self._get_position()
-
-        # function that removes any error on final position due to segmentation resolution
-        if (pos[2] != target_position):
-            self._move([0,0,target_position,0],velocity)
-            toolhead.wait_moves()
-            pos = self._get_position()
 
         return pos
 
@@ -494,7 +497,7 @@ class PrinterFssProbe:
     def cmd_SET_Z_OFFSET(self,gcmd):
         self.z_offset = gcmd.get_float("OFFSET", 0 , minval=0. )
 
-    cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
+    cmd_SET_Z_OFFSET_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
 
         if self.exposure_active_flag:
