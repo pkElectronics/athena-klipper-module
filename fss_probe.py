@@ -401,7 +401,7 @@ class PrinterFssProbe:
         pos = self._get_position()
 
         if move_absolute == 1:
-            dip_amount = (pos[2] - dip_amount) *-1
+            dip_amount = (pos[2] - dip_amount)
 
         if dip_amount == 0:
             dip_amount = -1*pos[2]
