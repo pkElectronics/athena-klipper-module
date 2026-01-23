@@ -108,7 +108,7 @@ class PrinterFssProbe:
                                     desc=self.cmd_SET_EXPOSE_CALIBRATION)
 
         self.gcode.register_command('SET_Z_OFFSET', self.cmd_SET_Z_OFFSET,
-                                    desc=self.cmd_SET_Z_OFFSET_HELP)
+                                    desc=self.cmd_SET_Z_OFFSET_help)
 
         self.gcode.register_command('ATHENA_SET_PEELMODE_MINIMAL', self.cmd_ATHENA_SET_PEELMODE_MINIMAL)
 
@@ -489,7 +489,6 @@ class PrinterFssProbe:
         self.exposure_active_flag = False
         self.last_gcmd.respond_raw("Z_move_comp")
 
-    cmd_EXPOSE_help = "Sets the exposure power calibration value"
     def cmd_SET_EXPOSE_CALIBRATION(self,gcmd):
         self.exposure_calibration = gcmd.get_float("VALUE", 1 , above=0.)
 
@@ -497,7 +496,7 @@ class PrinterFssProbe:
     def cmd_SET_Z_OFFSET(self,gcmd):
         self.z_offset = gcmd.get_float("OFFSET", 0 , minval=0. )
 
-    cmd_SET_Z_OFFSET_help = "Exposes a layer for a given time with a given PWM setting"
+    cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
 
         if self.exposure_active_flag:
