@@ -183,10 +183,27 @@ class PrinterFssProbe:
     def run_probe_upwards(self, gcmd):
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-
-        pos = self._probe(lift_speed, lift_amount)
-
         toolhead = self.printer.lookup_object('toolhead')
+
+        position = self._get_position()
+
+        stage1_position = position.copy()
+        stage1_position[2] += 0.5
+
+        kinematics = toolhead.get_kinematics()
+
+        saved_accel_decel = kinematics.get_accel_decel()
+        stage1_accel_decel = saved_accel_decel.copy()
+        stage1_accel_decel["peel_accel"] = .5
+        stage1_accel_decel["peel_decel"] = 1
+        kinematics.set_accel_decel(stage1_accel_decel)
+
+        self._move(stage1_position,lift_speed)
+
+        kinematics.set_accel_decel(saved_accel_decel)
+
+        pos = self._probe(lift_speed, lift_amount-.5)
+
 
         if self.peelmode == "minimal":
             if pos[2] < self.min_lift_distance:
