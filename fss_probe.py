@@ -447,10 +447,6 @@ class PrinterFssProbe:
     def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
         self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
 
-
-    def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
-        self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
-
     def cmd_ATHENA_SET_PEELMODE_MINIMAL(self, gcmd):
         self.peelmode="minimal"
 
