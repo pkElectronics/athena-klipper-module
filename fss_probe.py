@@ -195,15 +195,17 @@ class PrinterFssProbe:
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
         stage1_accel_decel["peel_accel"] = .5
-        stage1_accel_decel["peel_decel"] = 1
+        stage1_accel_decel["peel_decel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
         self._move(stage1_position,lift_speed)
 
-        kinematics.set_accel_decel(saved_accel_decel)
+        stage1_accel_decel["peel_accel"] = 1000
+        kinematics.set_accel_decel(stage1_accel_decel)
 
         pos = self._probe(lift_speed, lift_amount-.5)
 
+        kinematics.set_accel_decel(saved_accel_decel)
 
         if self.peelmode == "minimal":
             if pos[2] < self.min_lift_distance:
