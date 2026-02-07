@@ -379,13 +379,17 @@ class PrinterFssProbe:
         d_d2 = max(0.1,(0.218*((max_force)**0.821)) / 1000) # maximum arm deflection due to force on build plate
         logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
 
-        if (target_position < 0.5):
+        if target_position < 0.5:
             deflection = ((d_d2*ilaC)*(1-(target_position*2))+((d_d*ilaC)*(target_position*2)))
             segments = max(1., math.floor((dip_amount+deflection) / resolution))
+            logging.info(f"Deflection {deflection}, Segments {segments}")
         else:
             deflection = (d_d*ilaC)
             segments = max(1., math.floor((dip_amount+deflection) / resolution))
-        if (target_position < resin_level_mm):
+
+        logging.info(f"Deflection {deflection}, Segments {segments}")
+
+        if target_position < resin_level_mm:
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
                 step_pos[2] =  pos[2] - (i * resolution)
