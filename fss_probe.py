@@ -363,7 +363,7 @@ class PrinterFssProbe:
 
         # constant factors for generating velocity profile
         resolution = 0.005 # similar to g2 gcode
-        vmin = 0.005 # minimum velocity 0.3mm/min
+        vmin = 0.05 # minimum velocity 0.3mm/min
         vmax = 10   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
         viscosity_coefficient = 60   #constant for movements outside of squeezing flow regime
