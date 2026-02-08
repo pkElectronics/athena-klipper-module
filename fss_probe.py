@@ -360,11 +360,12 @@ class PrinterFssProbe:
         pressure_gfmm2 = pressure_mpa * mPa_to_gfmm2
 
         target_position = gcmd.get_float("TARGET", minval=0.)
+        target_speed = gcmd.get_float("SPEED", minval=0.)
 
         # constant factors for generating velocity profile
         resolution = 0.005 # similar to g2 gcode
         vmin = 0.05 # minimum velocity 0.3mm/min
-        vmax = 10   # maximum velocity 600mm/min
+        vmax = target_speed / 60   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
         viscosity_coefficient = 60   #constant for movements outside of squeezing flow regime
         e_plate_area = buildplate_area_mm2 * 0.75 # the circular eqiuvalent area which produces the same constant pressure curve
