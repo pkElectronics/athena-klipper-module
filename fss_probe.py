@@ -353,7 +353,7 @@ class PrinterFssProbe:
         mPa_to_gfmm2 = .0000102
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
         resin_level_mm = self.last_resin_level
-        surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
+        surface_area_mm2 = gcmd.get_float("SURFACEAREA", minval=0.) #from print data
         buildplate_area_mm2 = self.buildplate_area
         layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
         pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
@@ -361,6 +361,9 @@ class PrinterFssProbe:
 
         target_position = gcmd.get_float("TARGET", minval=0.)
         target_speed = gcmd.get_float("SPEED", minval=0.)
+
+        if surface_area_mm2 > 40000 or surface_area_mm2 == 0:
+            surface_area_mm2 = 210*120*0.2
 
         # constant factors for generating velocity profile
         resolution = 0.005 # similar to g2 gcode
