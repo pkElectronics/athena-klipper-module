@@ -25,6 +25,7 @@ class PrinterFssProbe:
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
+        self.smart_dip_segment_resolution = config.getfloat("smart_dip_segment_resolution", 0.005, above=0.)
         self.full_lift_speed = None
 
         self.buildplate_area = 120*210 #make configurable in the future
@@ -183,12 +184,13 @@ class PrinterFssProbe:
     def run_probe_upwards(self, gcmd):
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+        stage1_lift_distance = 0.5
         toolhead = self.printer.lookup_object('toolhead')
 
         position = self._get_position()
 
         stage1_position = position.copy()
-        stage1_position[2] += 0.5
+        stage1_position[2] += stage1_lift_distance
 
         kinematics = toolhead.get_kinematics()
 
@@ -203,7 +205,7 @@ class PrinterFssProbe:
         stage1_accel_decel["peel_accel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        pos = self._probe(lift_speed, lift_amount-.5)
+        pos = self._probe(lift_speed, lift_amount - stage1_lift_distance)
 
         kinematics.set_accel_decel(saved_accel_decel)
 
@@ -224,7 +226,8 @@ class PrinterFssProbe:
         elif self.peelmode == "full":
             logging.info("Peel finished after %f", pos[2])
             pos_actual = self._get_position()
-            remaining_move = lift_amount - pos[2]
+            already_travelled = stage1_lift_distance + pos[2]
+            remaining_move = lift_amount - already_travelled
 
             if remaining_move > 0.1:
 
@@ -234,8 +237,8 @@ class PrinterFssProbe:
                 new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
                 kin.set_accel_decel(new_accel_decel)
 
-                if pos[2] < self.min_lift_distance and self.min_lift_distance - pos[2] > 0.1:
-                    remaining_min_lift_move = self.min_lift_distance - pos[2]
+                if self.min_lift_distance - already_travelled > 0.1:
+                    remaining_min_lift_move = self.min_lift_distance - already_travelled
 
                     logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
 
@@ -366,7 +369,7 @@ class PrinterFssProbe:
             surface_area_mm2 = 210*120*0.2
 
         # constant factors for generating velocity profile
-        resolution = 0.005 # similar to g2 gcode
+        resolution = self.smart_dip_segment_resolution # similar to g2 gcode
         vmin = 0.05 # minimum velocity 0.3mm/min
         vmax = target_speed / 60   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
