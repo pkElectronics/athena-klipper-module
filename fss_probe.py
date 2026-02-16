@@ -184,7 +184,7 @@ class PrinterFssProbe:
     def run_probe_upwards(self, gcmd):
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-        stage1_lift_distance = 0.5
+        stage1_lift_distance = 0.2
         toolhead = self.printer.lookup_object('toolhead')
 
         position = self._get_position()
@@ -196,7 +196,7 @@ class PrinterFssProbe:
 
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
-        stage1_accel_decel["peel_accel"] = .5
+        stage1_accel_decel["peel_accel"] = .1
         stage1_accel_decel["peel_decel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
@@ -388,12 +388,12 @@ class PrinterFssProbe:
 
         if target_position < 0.5:
             deflection = ((d_d2*ilaC)*(1-(target_position*2))+((d_d*ilaC)*(target_position*2)))
-            segments = max(1., math.floor((dip_amount+deflection) / resolution))
-            logging.info(f"Deflection {deflection}, Segments {segments}")
         else:
             deflection = (d_d*ilaC)
-            segments = max(1., math.floor((dip_amount+deflection) / resolution))
 
+        deflection = 0
+
+        segments = max(1., math.floor((dip_amount+deflection) / resolution))
         logging.info(f"Deflection {deflection}, Segments {segments}")
 
         if target_position < resin_level_mm:
@@ -417,7 +417,7 @@ class PrinterFssProbe:
                 velocity = min(max(v1,vmin),vmax)
                 self._move(step_pos,velocity)
 
-        self._move([0,0,target_position,0],5)
+        #self._move([0,0,target_position,0],5)
         toolhead.wait_moves()
         pos = self._get_position()
 
