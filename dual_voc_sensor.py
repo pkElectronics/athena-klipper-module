@@ -229,21 +229,12 @@ class DualVocSensor:
         calib_changed &= changed[1]
 
         if data_changed:
-            logging.info("Storing Data")
-            #self.store_data()
-
             if self.enable_respond:
                 self.dummy_gcode_cmd.respond_raw(f"VOCINLET:{self.inlet_calib.get_air_quality_indicator()[1]}")
                 self.dummy_gcode_cmd.respond_raw(f"VOCOUTLET:{self.outlet_calib.get_air_quality_indicator()[1]}")
 
-
-        #if calib_changed:
-        #    logging.info("Storing Calibration")
-        #    self.store_calib()
-
-
         measured_time = self.reactor.monotonic()
-        return measured_time + 1
+        return measured_time + 5
 
     def store_data(self):
         inlet_data = self.inlet_calib.get_measurement_data_for_export()
