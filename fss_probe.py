@@ -61,6 +61,14 @@ class PrinterFssProbe:
 
         self.z_offset = 0.0
 
+        self.x_res = 15120
+        self.y_res = 6230
+        self.x_px = 19
+        self.y_px = 14
+        self.total_screen_area = (self.x_res * self.x_px) * (self.y_res * self.y_px)
+
+
+
         self.reactor = self.printer.get_reactor()
 
 
@@ -185,6 +193,10 @@ class PrinterFssProbe:
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
         stage1_lift_distance = 0.2
+        lift_segment_distance = 0.2
+        target_accel = 1000.
+        base_accel = 0.1
+
         toolhead = self.printer.lookup_object('toolhead')
 
         position = self._get_position()
@@ -196,16 +208,30 @@ class PrinterFssProbe:
 
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
-        stage1_accel_decel["peel_accel"] = .1
-        stage1_accel_decel["peel_decel"] = 1000
+        stage1_accel_decel["peel_accel"] = base_accel
+        stage1_accel_decel["peel_decel"] = target_accel
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        self._move(stage1_position,lift_speed)
+
+        segments = int(self.min_lift_distance / lift_segment_distance)
+        for i in range(1,segments):
+            pos = position.copy()
+            pos[2] += i*lift_segment_distance
+            acc = saved_accel_decel.copy()
+            acc["peel_accel"] = min(target_accel,base_accel*2**i)
+            kinematics.set_accel_decel(acc)
+            self._move(pos,lift_speed)
+
 
         stage1_accel_decel["peel_accel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        pos = self._probe(lift_speed, lift_amount - stage1_lift_distance)
+        print_time = toolhead.get_last_move_time()
+
+        if not self.mcu_probe.query_endstop(print_time):
+            pos = self._probe(lift_speed, lift_amount - stage1_lift_distance)
+        else:
+            pos = [0.0,0.0,self.min_lift_distance]
 
         kinematics.set_accel_decel(saved_accel_decel)
 
@@ -264,109 +290,114 @@ class PrinterFssProbe:
 
         return pos
 
-    def _calc_peel_v2(self,s2_minspeed, s2_maxarea, s2_maxspeed, s2_minarea,area):
-        coeff = (s2_maxspeed - s2_minspeed) / (s2_minarea - s2_maxarea)
-        speed = coeff * (area - s2_maxarea) + s2_minspeed
-        return max(min(speed,s2_maxspeed),s2_minspeed)
-
-    def _calc_peel_v1(self,s1_minspeed, s1_maxarea, s1_maxspeed, s1_minarea,area):
-        coeff = (s1_maxspeed - s1_minspeed) / (s1_minarea - s1_maxarea)
-        speedv1 = coeff * (area - s1_maxarea) + s1_minspeed
-        return max(min(speedv1,s1_maxspeed),s1_minspeed)
-
-    def _calc_peel_l1(self,s1_minlift, s1_maxarea, s1_maxlift, s1_minarea,area):
-        coeff = (s1_maxlift - s1_minlift) / (s1_maxarea - s1_minarea)
-        lifts1 = coeff * (area - s1_minarea) + s1_minlift
-        return max(min(lifts1,s1_maxlift),s1_minlift)
-
     def smart_peel(self, gcmd):
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
-        stage1_minlift = gcmd.get_float("STAGE1_MINLIFT", above=0.)
-        stage1_maxlift = gcmd.get_float("STAGE1_MAXLIFT", above=0.)
-        stage1_minspeed = gcmd.get_float("STAGE1_MINSPEED", above=0.) / 60
-        stage1_maxspeed = gcmd.get_float("STAGE1_MAXSPEED", above=0.) / 60
-        stage1_accel = gcmd.get_float("STAGE1_ACCEL", above=0.)
-        interstage_accel = gcmd.get_float("INTERSTAGE_ACCEL", above=0.)
+        lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.) / 60
 
-        stage1_maxarea = gcmd.get_float("STAGE1_MAXAREA", above=0.)
-        stage1_minarea = gcmd.get_float("STAGE1_MINAREA", above=0.)
+        total_surface_area_mm2 = gcmd.get_float("TOTAL_SURFACEAREA", above=0.) #from print data
+        largest_surface_area_mm2 = gcmd.get_float("LARGEST_SURFACEAREA", above=0.) #from print data
+        modulus_gpa = gcmd.get_float("MODULUS", above=0.) #from resin profile
+        viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
 
-        stage2_minspeed = gcmd.get_float("STAGE2_MINSPEED", above=0.) /60
-        stage2_maxarea = gcmd.get_float("STAGE2_MAXAREA", above=0.)
+        pos = self._get_position()
+        layer_position = pos[2]
 
-        stage2_maxspeed = gcmd.get_float("STAGE2_MAXSPEED", above=0.) /60
-        stage2_minarea = gcmd.get_float("STAGE2_MINAREA", above=0.)
+        actual_lift_distance = lift_total
+        if layer_position < self.last_resin_level:
+            actual_lift_distance = round(actual_lift_distance + (lift_total / 3))
 
-        surface_area_mm2 = gcmd.get_float("SURFACEAREA", above=0.) #from print data
+        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa * 2) / 2))
+        stage2_distance = actual_lift_distance - stage1_distance
 
-        stage1_lift = self._calc_peel_l1(stage1_minlift,stage1_maxarea,stage1_maxlift,stage1_minarea,surface_area_mm2)
+        if layer_position < self.last_resin_level:
+            speed = max(60, round(lift_speed * 0.5 , 1))
+            stage1_distance = max(stage1_distance, round(actual_lift_distance, 2))
 
-        stage1_speed = self._calc_peel_v1(stage1_minspeed,stage1_maxarea,stage1_maxspeed,stage1_minarea,surface_area_mm2)
+        else:
+            areaRatio = largest_surface_area_mm2 / total_surface_area_mm2
+            areaFactor = pow(areaRatio, 1 / 4)
+            minSpeed = max(30, lift_speed * (1-1 / 2 * modulus_gpa))
+            stage2_distance = round((1 + stage2_distance * areaFactor),1)
+            speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
-        stage2_speed = self._calc_peel_v2(stage2_minspeed,stage2_maxarea,stage2_maxspeed,stage2_minarea,surface_area_mm2)
-        logging.info(f"Computed S2 Speed: {stage2_speed}mm/s | {stage2_speed*60}mm/min")
-        gcmd.respond_raw(f"Smart Peel Computed Values - S1 Lift Distance: {stage1_lift}mm | S1 Lift Speed: {stage1_speed*60}mm/min | S2 Lift Speed: {stage2_speed*60}mm/min")
+
+        stage1Speed = max(30, round(speed * 0.15 * (1 / modulus_gpa) / 5) * 5)
+        stage2Speed = max(60, speed)
+
+        logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
+
+        lift_segment_distance = 0.2
+        target_accel = 1000.
+        base_accel = 0.1
 
         toolhead = self.printer.lookup_object('toolhead')
-
         position = self._get_position()
 
-        stage1_position = position.copy()
-        stage1_position[2] += stage1_lift
-
-        stage2_position = position.copy()
-        stage2_position[2] += lift_total
+        end_z = position[2] + stage1_distance + stage2_distance
+        end_position = position.copy()
+        end_position[2]= end_z
 
         kinematics = toolhead.get_kinematics()
 
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
-        stage1_accel_decel["peel_accel"] = stage1_accel
-        stage1_accel_decel["peel_decel"] = stage1_accel
-
-        stage2_accel_decel = saved_accel_decel.copy()
-        stage2_accel_decel["peel_accel"] = interstage_accel
-
+        stage1_accel_decel["peel_accel"] = base_accel
+        stage1_accel_decel["peel_decel"] = target_accel
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        self._move(stage1_position,stage1_speed)
+        segments = int(stage1_distance / lift_segment_distance)
+        for i in range(1, segments):
+            pos = position.copy()
+            pos[2] += i * lift_segment_distance
+            acc = saved_accel_decel.copy()
+            acc["peel_accel"] = min(target_accel, base_accel * 2 ** i)
+            kinematics.set_accel_decel(acc)
+            self._move(pos, stage1Speed)
 
-        kinematics.set_accel_decel(stage2_accel_decel)
+        stage1_accel_decel["peel_accel"] = 1000
+        kinematics.set_accel_decel(stage1_accel_decel)
 
-        self._move(stage2_position, stage2_speed)
+        if position[2] > self.last_resin_level:
+            toolhead.wait_moves()
+            print_time = toolhead.get_last_move_time()
+
+            if not self.mcu_probe.query_endstop(print_time):
+                pos = self._probe(stage2Speed, stage2_distance)
+            else:
+                pos = [0.0, 0.0, stage1_distance + stage2_distance]
+                self._move(end_position, self.full_lift_speed)
+
+        else:
+            position[2] = end_z
+            self._move(end_position, stage2Speed)
 
         toolhead.wait_moves()
 
         kinematics.set_accel_decel(saved_accel_decel)
 
+        return pos
 
-        return self._get_position()
-
-
-
-    def _calc_v(self,P_mpa,dl,u,A,d_d):
-        v1 = ((P_mpa*math.pi*2*(d_d+dl)**3)/(3*u*A))*(600*(dl+d_d)/(math.sqrt(A/math.pi)))
-        v = min(max(v1,0.01),10)
-        return v
 
 
     def smart_dip(self, gcmd):
         #this version is an approximation of a constant pressure velocity profile using a similar scheme as a g2 command
         logging.info(f"into smart_dip command")
         mPa_to_gfmm2 = .0000102
+        modulus_to_pressure = 100000.0 #This is pure guesswork
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
         resin_level_mm = self.last_resin_level
         surface_area_mm2 = gcmd.get_float("SURFACEAREA", minval=0.) #from print data
         buildplate_area_mm2 = self.buildplate_area
         layerheight_mm = gcmd.get_float("LAYERHEIGHT", above=0.) # from slice data
-        pressure_mpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
+        modulus_gpa = gcmd.get_float("PRESSURE", above=0.) #from resin profile
+        pressure_mpa = modulus_gpa * modulus_to_pressure
         pressure_gfmm2 = pressure_mpa * mPa_to_gfmm2
 
         target_position = gcmd.get_float("TARGET", minval=0.)
         target_speed = gcmd.get_float("SPEED", minval=0.)
 
         if surface_area_mm2 > 40000 or surface_area_mm2 == 0:
-            surface_area_mm2 = 210*120*0.2
+            surface_area_mm2 = self.total_screen_area*0.2
 
         # constant factors for generating velocity profile
         resolution = self.smart_dip_segment_resolution # similar to g2 gcode
@@ -488,6 +519,13 @@ class PrinterFssProbe:
 
     def cmd_ATHENA_SET_FULL_LIFT_SPEED(self, gcmd):
         self.full_lift_speed = gcmd.get_float("VALUE", self.lift_speed * 60, minval=0.) / 60
+
+    def cmd_ATHENA_UPDATE_SCREEN_PARAMS(self,gcmd):
+        self.x_res = gcmd.get_int("XRES")
+        self.y_res = gcmd.get_int("YRES")
+        self.x_px = gcmd.get_int("XPX")
+        self.y_px = gcmd.get_int("YPX")
+        self.total_screen_area = (self.x_res * self.x_px) * (self.y_res * self.y_px)
 
 
     cmd_QUERY_FSS_help = "Return the status of the z-probe"
