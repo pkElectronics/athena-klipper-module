@@ -386,6 +386,8 @@ class PrinterFssProbe:
                     logging.warning(f"Smart Peel - PeelDetection Triggered - Doing final move")
                     pd_trigger_position = pos[2] + stage1_distance
                     self._move(end_position, self.full_lift_speed)
+                else:
+                    pd_trigger_position = actual_lift_distance
 
             else:
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Triggered")
@@ -406,6 +408,8 @@ class PrinterFssProbe:
             logstr += "Disabled"
         elif pd_trigger_position == stage1_distance:
             logstr += "During Stage 1"
+        elif pd_trigger_position == actual_lift_distance:
+            logstr+= "Not Triggered"
         else:
             logstr += f"During Stage 2 at {pd_trigger_position}mm ({round((pd_trigger_position/actual_lift_distance)*100)}% of total move"
         logging.warning(logstr)
