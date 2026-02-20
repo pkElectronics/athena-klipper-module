@@ -332,7 +332,7 @@ class PrinterFssProbe:
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
-        stage1Speed = min(stage1_max_speed, round(speed * 0.15 * (1 / modulus_gpa) / 5) * 5)
+        stage1Speed = min(stage1_max_speed, round(speed * 0.15 * (1 / modulus_gpa),2))
         stage2Speed = min(stage2_max_speed, speed)
 
         actual_lift_distance = stage1_distance + stage2_distance # recompute due to likely changes in previous code
