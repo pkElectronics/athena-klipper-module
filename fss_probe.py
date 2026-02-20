@@ -299,8 +299,13 @@ class PrinterFssProbe:
         modulus_gpa = gcmd.get_float("MODULUS", above=0.) #from resin profile
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
 
-        stage1_max_speed = lift_speed / 4
+        stage1_max_speed = lift_speed / 2
+        stage1_min_speed = lift_speed / 4
         stage2_max_speed = self.full_lift_speed * 60
+        stage2_min_speed = lift_speed / 2
+
+        effective_resin_level = min(self.last_resin_level,viscosity_cps / 1000.0) #this is kinda experimental
+
 
         #calculations are performed in mm/min
 
@@ -312,28 +317,28 @@ class PrinterFssProbe:
 
         logging.warning(f"Smart Peel Using {actual_lift_distance}mm Lift")
 
-        if layer_position < self.last_resin_level:
+        if layer_position < effective_resin_level:
             actual_lift_distance = round(actual_lift_distance + (lift_total / 3))
 
-        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa * 2) / 2))
+        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa ,1) ))
         stage2_distance = actual_lift_distance - stage1_distance
 
         logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
 
-        if layer_position < self.last_resin_level:
-            speed = max(stage1_max_speed, round(lift_speed/2 , 1))
+        if layer_position < effective_resin_level:
+            speed = max(stage2_max_speed, round(lift_speed/2 , 1))
             stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
             areaRatio = largest_surface_area_mm2 / total_surface_area_mm2
             areaFactor = pow(areaRatio, 1 / 4)
-            minSpeed = max(stage1_max_speed, lift_speed * (1-1 / 2 * modulus_gpa))
+            minSpeed = max(stage1_max_speed, lift_speed * (1 - 1/2 * modulus_gpa))
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
-        stage1Speed = min(stage1_max_speed, round(speed * 0.15 * (1 / modulus_gpa),2))
-        stage2Speed = min(stage2_max_speed, speed)
+        stage1Speed = max(stage1_min_speed, round(speed * 0.15 * (1 / modulus_gpa),2))
+        stage2Speed = max(stage2_min_speed, speed)
 
         actual_lift_distance = stage1_distance + stage2_distance # recompute due to likely changes in previous code
 
