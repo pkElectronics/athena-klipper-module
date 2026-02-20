@@ -292,39 +292,55 @@ class PrinterFssProbe:
 
     def smart_peel(self, gcmd):
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
-        lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.) / 60
+        lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.)
 
         total_surface_area_mm2 = gcmd.get_float("TOTAL_SURFACEAREA", above=0.) #from print data
         largest_surface_area_mm2 = gcmd.get_float("LARGEST_SURFACEAREA", above=0.) #from print data
         modulus_gpa = gcmd.get_float("MODULUS", above=0.) #from resin profile
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
 
+        stage1_max_speed = lift_speed / 4
+        stage2_max_speed = self.full_lift_speed * 60
+
+        #calculations are performed in mm/min
+
         pos = self._get_position()
         layer_position = pos[2]
 
-        actual_lift_distance = lift_total
+        estimated_lift_distance = 4 + min(4,2/modulus_gpa)
+        actual_lift_distance = max(lift_total,estimated_lift_distance)
+
+        logging.warning(f"Smart Peel Using {actual_lift_distance}mm Lift")
+
         if layer_position < self.last_resin_level:
             actual_lift_distance = round(actual_lift_distance + (lift_total / 3))
 
         stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa * 2) / 2))
         stage2_distance = actual_lift_distance - stage1_distance
 
+        logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
+
         if layer_position < self.last_resin_level:
-            speed = max(60, round(lift_speed * 0.5 , 1))
-            stage1_distance = max(stage1_distance, round(actual_lift_distance, 2))
+            speed = max(stage1_max_speed, round(lift_speed/2 , 1))
+            stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
             areaRatio = largest_surface_area_mm2 / total_surface_area_mm2
             areaFactor = pow(areaRatio, 1 / 4)
-            minSpeed = max(30, lift_speed * (1-1 / 2 * modulus_gpa))
+            minSpeed = max(stage1_max_speed, lift_speed * (1-1 / 2 * modulus_gpa))
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
-        stage1Speed = max(30, round(speed * 0.15 * (1 / modulus_gpa) / 5) * 5)
-        stage2Speed = max(60, speed)
+        stage1Speed = min(stage1_max_speed, round(speed * 0.15 * (1 / modulus_gpa) / 5) * 5)
+        stage2Speed = min(stage2_max_speed, speed)
+
+        actual_lift_distance = stage1_distance + stage2_distance # recompute due to likely changes in previous code
 
         logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
+        #convert speeds to mm/s for klipper:
+        stage1Speed = round(stage1Speed / 60, 2)
+        stage2Speed = round(stage2Speed / 60, 2)
 
         lift_segment_distance = 0.2
         target_accel = 1000.
@@ -357,23 +373,42 @@ class PrinterFssProbe:
         stage1_accel_decel["peel_accel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
+        pd_trigger_position = 0.0
+
         if position[2] > self.last_resin_level:
             toolhead.wait_moves()
             print_time = toolhead.get_last_move_time()
 
             if not self.mcu_probe.query_endstop(print_time):
+                logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Not Triggered")
                 pos = self._probe(stage2Speed, stage2_distance)
+                if pos[2] != stage2_distance:
+                    logging.warning(f"Smart Peel - PeelDetection Triggered - Doing final move")
+                    pd_trigger_position = pos[2] + stage1_distance
+                    self._move(end_position, self.full_lift_speed)
+
             else:
-                pos = [0.0, 0.0, stage1_distance + stage2_distance]
+                logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Triggered")
+                pd_trigger_position = stage1_distance
+                pos = [0.0, 0.0, actual_lift_distance]
                 self._move(end_position, self.full_lift_speed)
 
         else:
-            position[2] = end_z
+            logging.warning(f"Smart Peel - Below Resin Level - PeelDetection Disabled")
+            pos = [0.0, 0.0, actual_lift_distance]
             self._move(end_position, stage2Speed)
 
         toolhead.wait_moves()
 
         kinematics.set_accel_decel(saved_accel_decel)
+        logstr = f"Smart Peel Move Stats - Stage 1 Lift: {stage1_distance} | Stage 2 Lift: {stage2_distance} | Peel Detection: "
+        if pd_trigger_position == 0.0:
+            logstr += "Disabled"
+        elif pd_trigger_position == stage1_distance:
+            logstr += "During Stage 1"
+        else:
+            logstr += f"During Stage 2 at {pd_trigger_position}mm ({round((pd_trigger_position/actual_lift_distance)*100)}% of total move"
+        logging.warning(logstr)
 
         return pos
 
@@ -482,8 +517,11 @@ class PrinterFssProbe:
         gcmd.respond_raw("Z_move_comp")
 
     def cmd_ATHENA_SMART_PEEL(self,gcmd):
-        self.smart_peel(gcmd)
+        pos = self.smart_peel(gcmd)
         gcmd.respond_raw("Z_move_comp")
+        gcmd.respond_info("Result is z=%.6f" % (pos[2],))
+        self.last_z_result = pos[2]
+
 
 
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
