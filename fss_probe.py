@@ -326,7 +326,7 @@ class PrinterFssProbe:
         logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
 
         if layer_position < effective_resin_level:
-            speed = max(stage2_max_speed, round(lift_speed/2 , 1))
+            speed = lift_speed/2
             stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
