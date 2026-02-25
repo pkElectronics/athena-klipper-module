@@ -294,10 +294,13 @@ class PrinterFssProbe:
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
         lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.)
 
-        total_surface_area_mm2 = gcmd.get_float("TOTAL_SURFACEAREA", above=0.) #from print data
-        largest_surface_area_mm2 = gcmd.get_float("LARGEST_SURFACEAREA", above=0.) #from print data
+        total_surface_area_mm2 = gcmd.get_float("TOTAL_SURFACEAREA", minval=0.) #from print data
+        largest_surface_area_mm2 = gcmd.get_float("LARGEST_SURFACEAREA", minval=0.) #from print data
         modulus_gpa = gcmd.get_float("MODULUS", above=0.) #from resin profile
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
+
+        if largest_surface_area_mm2 == 0.0:
+            largest_surface_area_mm2 = self.buildplate_area * 0.2
 
         stage1_max_speed = lift_speed / 2
         stage1_min_speed = lift_speed / 4
@@ -330,7 +333,7 @@ class PrinterFssProbe:
             stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
-            areaRatio = largest_surface_area_mm2 / total_surface_area_mm2
+            areaRatio = largest_surface_area_mm2 / self.buildplate_area
             areaFactor = pow(areaRatio, 1 / 4)
             minSpeed = max(stage1_max_speed, lift_speed * (1 - 1/2 * modulus_gpa))
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
