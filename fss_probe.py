@@ -307,7 +307,7 @@ class PrinterFssProbe:
         stage2_max_speed = self.full_lift_speed * 60
         stage2_min_speed = lift_speed / 2
 
-        effective_resin_level = min(self.last_resin_level,viscosity_cps / 1000.0) #this is kinda experimental
+        effective_resin_level = min(self.last_resin_level,viscosity_cps / 250.0) #this is kinda experimental
 
 
         #calculations are performed in mm/min
