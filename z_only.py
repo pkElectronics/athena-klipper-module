@@ -168,17 +168,23 @@ class ZonlyKinematics:
 
         reachable_z_velocity = self.max_z_velocity
 
-        for i in range(1,int(self.max_z_velocity), 1):
-            test_v = float(i)
-            accel_t = test_v/move_accel
-            decel_t = test_v/move_decel
-            accel_d = 0.5*move_accel*accel_t**2
-            decel_d = 0.5*move_decel*decel_t**2
+        def calc_acceldecel_d(test_v_int, move_accel_int, move_decel_int):
+            accel_t_int = test_v_int/move_accel_int
+            decel_t_int = test_v_int/move_decel_int
+            accel_d_int = 0.5*move_accel_int*accel_t_int**2
+            decel_d_int = 0.5*move_decel_int*decel_t_int**2
+            return accel_d_int + decel_d_int
 
-            reachable_z_velocity = test_v
-
-            if (accel_d+decel_d) > abs(move.axes_d[2]):
+        for i in range(int(self.max_z_velocity),0, -1):
+            reachable_z_velocity = float(i)
+            if calc_acceldecel_d(reachable_z_velocity,move_accel, move_decel ) < abs(move.axes_d[2]):
                 break
+
+        if reachable_z_velocity == 0:
+            for i in range(10, 1, -1):
+                reachable_z_velocity = float(i)/10.0
+                if calc_acceldecel_d(reachable_z_velocity, move_accel, move_decel) < abs(move.axes_d[2]):
+                    break
 
         logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
 
