@@ -335,12 +335,15 @@ class PrinterFssProbe:
         else:
             areaRatio = largest_surface_area_mm2 / self.buildplate_area
             areaFactor = pow(areaRatio, 1 / 4)
-            minSpeed = max(stage1_max_speed, lift_speed * (1 - 1/2 * modulus_gpa))
+            #minSpeed = max(stage1_max_speed, lift_speed * (1 - 1/2 * modulus_gpa)) #matteos version
+            minSpeed = max(stage1_max_speed, lift_speed * (modulus_gpa / 6 + 1 / 2))#jacobis version
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
-        stage1Speed = max(stage1_min_speed, round(speed * 0.15 * (1 / modulus_gpa),2))
+        #stage1Speed = max(stage1_min_speed, round(speed * 0.15 * (1 / modulus_gpa),2)) #matteos version
+        stage1Speed = max(stage1_min_speed, round(speed ** 2 / lift_speed * modulus_gpa, 2)) #jacobis version
+
         stage1Speed = min(stage1_max_speed,stage1Speed)
         stage2Speed = max(stage2_min_speed, speed)
         stage2Speed = min(stage2_max_speed, stage2Speed)
