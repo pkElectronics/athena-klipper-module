@@ -323,7 +323,9 @@ class PrinterFssProbe:
         if layer_position < effective_resin_level:
             actual_lift_distance = round(actual_lift_distance + (lift_total / 3))
 
-        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa ,1) ))
+        #stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa ,1) ))
+        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / (3 * modulus_gpa), 1)))
+
         stage2_distance = actual_lift_distance - stage1_distance
 
         logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
