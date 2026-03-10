@@ -52,7 +52,7 @@ class PrinterFssProbe:
         self.resin_temp_setpoint = 0.0
         self.resinheater = None
 
-        self.peelmode = "minimal"
+        self.kinematic_mode = "minimal"
 
         self.expose_processing_delay = 0.300
 
@@ -119,16 +119,19 @@ class PrinterFssProbe:
         self.gcode.register_command('SET_Z_OFFSET', self.cmd_SET_Z_OFFSET,
                                     desc=self.cmd_SET_Z_OFFSET_help)
 
-        self.gcode.register_command('ATHENA_SET_PEELMODE_MINIMAL', self.cmd_ATHENA_SET_PEELMODE_MINIMAL)
+        self.gcode.register_command('ATHENA_SET_KINEMATIC_MODE_MINIMAL', self.cmd_ATHENA_SET_KINEMATIC_MODE_MINIMAL)
 
-        self.gcode.register_command('ATHENA_SET_PEELMODE_FULL', self.cmd_ATHENA_SET_PEELMODE_FULL)
+        self.gcode.register_command('ATHENA_SET_KINEMATIC_MODE_FULL', self.cmd_ATHENA_SET_KINEMATIC_MODE_FULL)
+        self.gcode.register_command('ATHENA_SET_KINEMATIC_MODE', self.cmd_ATHENA_SET_KINEMATIC_MODE)
+
+
 
         self.gcode.register_command('ATHENA_SET_MINIMUM_LIFT_DISTANCE', self.cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE)
 
         self.gcode.register_command('ATHENA_SET_FULL_LIFT_SPEED', self.cmd_ATHENA_SET_FULL_LIFT_SPEED)
 
-        self.gcode.register_command('ATHENA_SMART_DIP', self.cmd_ATHENA_SMART_DIP)
-        self.gcode.register_command('ATHENA_SMART_PEEL', self.cmd_ATHENA_SMART_PEEL)
+        self.gcode.register_command('ATHENA_DIP', self.cmd_ATHENA_DIP)
+        self.gcode.register_command('ATHENA_PEEL', self.cmd_ATHENA_PEEL)
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -235,7 +238,7 @@ class PrinterFssProbe:
 
         kinematics.set_accel_decel(saved_accel_decel)
 
-        if self.peelmode == "minimal":
+        if self.kinematic_mode == "minimal":
             if pos[2] < self.min_lift_distance:
                 logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
                 pos_actual = self._get_position()
@@ -249,7 +252,7 @@ class PrinterFssProbe:
                 else:
                     logging.info("Skipping due to hysteresis")
 
-        elif self.peelmode == "full":
+        elif self.kinematic_mode == "full":
             logging.info("Peel finished after %f", pos[2])
             pos_actual = self._get_position()
             already_travelled = stage1_lift_distance + pos[2]
@@ -315,36 +318,25 @@ class PrinterFssProbe:
         pos = self._get_position()
         layer_position = pos[2]
 
-        estimated_lift_distance = 4 + min(4,2/modulus_gpa)
-        actual_lift_distance = max(lift_total,estimated_lift_distance)
-
-        logging.warning(f"Smart Peel Using {actual_lift_distance}mm Lift")
-
-        if layer_position < effective_resin_level:
-            actual_lift_distance = round(actual_lift_distance + (lift_total / 3))
-
-        #stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / 3 * modulus_gpa ,1) ))
-        stage1_distance = min(actual_lift_distance - 1, max(1, round(actual_lift_distance / (3 * modulus_gpa), 1)))
-
-        stage2_distance = actual_lift_distance - stage1_distance
+        stage1_distance = min(lift_total - 1, max(1, round(lift_total / pow(3 * modulus_gpa, 2 / 3), 1)))
+        stage2_distance = lift_total - stage1_distance
 
         logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
 
         if layer_position < effective_resin_level:
             speed = lift_speed/2
-            stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
+            #stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
             areaRatio = largest_surface_area_mm2 / self.buildplate_area
             areaFactor = pow(areaRatio, 1 / 4)
-            #minSpeed = max(stage1_max_speed, lift_speed * (1 - 1/2 * modulus_gpa)) #matteos version
-            minSpeed = max(stage1_max_speed, lift_speed * (modulus_gpa / 6 + 1 / 2))#jacobis version
+            minSpeed = max(stage1_max_speed, lift_speed * (modulus_gpa / 6 + 1/2))
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
         #stage1Speed = max(stage1_min_speed, round(speed * 0.15 * (1 / modulus_gpa),2)) #matteos version
-        stage1Speed = max(stage1_min_speed, round(speed ** 2 / lift_speed * modulus_gpa, 2)) #jacobis version
+        stage1Speed = max(stage1_min_speed, round(speed ** 2 / lift_speed * 1 / 2, 2)) #jacobis version (corrected on 6.3.)
 
         stage1Speed = min(stage1_max_speed,stage1Speed)
         stage2Speed = max(stage2_min_speed, speed)
@@ -467,19 +459,16 @@ class PrinterFssProbe:
         toolhead = self.printer.lookup_object('toolhead')
         pos = self._get_position()
         dip_amount = pos[2] - target_position
+
+        dip_first_stage = dip_amount * 0.8
+        dip_second_stage = dip_amount - dip_first_stage
+
+
         d_d = max(0.1,(0.218*((surface_area_mm2*pressure_gfmm2)**0.821)) / 1000)    # maximum arm deflection from retract force on layer area
-        d_d2 = max(0.1,(0.218*((max_force)**0.821)) / 1000) # maximum arm deflection due to force on build plate
+        d_d2 = max(0.1, (0.218 * (max_force ** 0.821)) / 1000) # maximum arm deflection due to force on build plate
         logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
 
-        if target_position < 0.5:
-            deflection = ((d_d2*ilaC)*(1-(target_position*2))+((d_d*ilaC)*(target_position*2)))
-        else:
-            deflection = (d_d*ilaC)
-
-        deflection = 0
-
-        segments = max(1., math.floor((dip_amount+deflection) / resolution))
-        logging.info(f"Deflection {deflection}, Segments {segments}")
+        segments = max(1., math.floor(dip_second_stage / resolution))
 
         if target_position < resin_level_mm:
             for i in range(1, int(segments) + 1):
@@ -531,6 +520,30 @@ class PrinterFssProbe:
 
     cmd_PROBE_help = "Probe Z-height at current XY position"
 
+    def cmd_ATHENA_DIP(self,gcmd):
+        if self.kinematic_mode != "smart":
+            target_position = gcmd.get_float("TARGET", minval=0.)
+            target_speed = gcmd.get_float("SPEED", minval=0.) / 60.0
+            pos = [0,0,target_position]
+            self._move(pos,target_speed)
+            self.toolhead.wait_moves()
+
+        else:
+            self.smart_dip(gcmd)
+
+        gcmd.respond_raw("Z_move_comp")
+
+    def cmd_ATHENA_PEEL(self,gcmd):
+        if self.kinematic_mode != "smart":
+            pos = self.run_probe_upwards(gcmd)
+        else:
+            pos = self.smart_peel(gcmd)
+
+        gcmd.respond_raw("Z_move_comp")
+        gcmd.respond_info("Result is z=%.6f" % (pos[2],))
+        self.last_z_result = pos[2]
+
+
     def cmd_ATHENA_SMART_DIP(self,gcmd):
         self.smart_dip(gcmd)
         gcmd.respond_raw("Z_move_comp")
@@ -540,7 +553,6 @@ class PrinterFssProbe:
         gcmd.respond_raw("Z_move_comp")
         gcmd.respond_info("Result is z=%.6f" % (pos[2],))
         self.last_z_result = pos[2]
-
 
 
     def cmd_ATHENA_PROBE_UPWARDS(self, gcmd):
@@ -565,11 +577,22 @@ class PrinterFssProbe:
     def cmd_ATHENA_OVERRIDE_RESINLEVEL(self, gcmd):
         self.last_resin_level = gcmd.get_float("LEVEL", above=0.)  # from resin profile
 
-    def cmd_ATHENA_SET_PEELMODE_MINIMAL(self, gcmd):
-        self.peelmode="minimal"
+    def cmd_ATHENA_SET_KINEMATIC_MODE_MINIMAL(self, gcmd):
+        self.kinematic_mode= "minimal"
 
-    def cmd_ATHENA_SET_PEELMODE_FULL(self, gcmd):
-        self.peelmode="full"
+    def cmd_ATHENA_SET_KINEMATIC_MODE_FULL(self, gcmd):
+        self.kinematic_mode= "full"
+
+    def cmd_ATHENA_SET_KINEMATIC_MODE(self, gcmd):
+        mode = gcmd.get_int("MODE")
+        if mode == 0:
+            self.kinematic_mode = "minimal"
+        elif mode == 1:
+            self.kinematic_mode = "full"
+        elif mode == 2:
+            self.kinematic_mode = "smart"
+        else:
+            self.kinematic_mode = "full"
 
     def cmd_ATHENA_SET_MINIMUM_LIFT_DISTANCE(self, gcmd):
         self.min_lift_distance = gcmd.get_float("VALUE", self.lift_amount, minval=0.)
