@@ -78,5 +78,11 @@ class PulseOut:
         self.pulse_out_active = True
         self.toolhead.register_lookahead_callback(self.pulse_out_timing_callback)
 
+
+    def get_status(self, eventtime):
+        return {
+            'none': True
+        }
+
 def load_config_prefix(config):
     return PulseOut(config)

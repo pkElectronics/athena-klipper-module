@@ -255,6 +255,10 @@ class DualVocSensor:
 
         self.writer.submit("calib", out)
 
+    def get_status(self, eventtime):
+        return {
+            'none': True
+        }
 
 def load_config(config):
     return DualVocSensor(config)
