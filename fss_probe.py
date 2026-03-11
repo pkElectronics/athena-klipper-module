@@ -453,8 +453,6 @@ class PrinterFssProbe:
         viscosity_coefficient = 60   #constant for movements outside of squeezing flow regime
         e_plate_area = buildplate_area_mm2 * 0.75 # the circular eqiuvalent area which produces the same constant pressure curve
         pressure_mpa_maxforce = (max_force/e_plate_area)/mPa_to_gfmm2    #pressure on build plate corresponding to maximum force
-        ilaC = 0.5 #Initial layer accuracy coefficient, determines the amount of overshoot on the first layers for better layer thickness accuracy, increases first layer time
-
 
         toolhead = self.printer.lookup_object('toolhead')
         pos = self._get_position()
@@ -462,6 +460,11 @@ class PrinterFssProbe:
 
         dip_first_stage = dip_amount * 0.8
         dip_second_stage = dip_amount - dip_first_stage
+
+        first_stage_target_position = pos.copy()
+
+        first_stage_target_position[2] = first_stage_target_position - dip_first_stage
+        self._move(first_stage_target_position,vmax)
 
 
         d_d = max(0.1,(0.218*((surface_area_mm2*pressure_gfmm2)**0.821)) / 1000)    # maximum arm deflection from retract force on layer area
@@ -473,7 +476,7 @@ class PrinterFssProbe:
         if target_position < resin_level_mm:
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
-                step_pos[2] =  pos[2] - (i * resolution)
+                step_pos[2] =  first_stage_target_position[2] - (i * resolution)
                 di = dip_amount + layerheight_mm - (i*resolution)
                 # velocity = minimum of velocity for maximum part pressure or velocity corresponding with maximum force
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
@@ -485,13 +488,12 @@ class PrinterFssProbe:
         else:
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
-                step_pos[2] =  pos[2] - (i * resolution)
+                step_pos[2] =  first_stage_target_position[2] - (i * resolution)
                 di = dip_amount + layerheight_mm - (i*resolution)
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 velocity = min(max(v1,vmin),vmax)
                 self._move(step_pos,velocity)
 
-        #self._move([0,0,target_position,0],5)
         toolhead.wait_moves()
         pos = self._get_position()
 
