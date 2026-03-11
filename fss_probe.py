@@ -527,7 +527,8 @@ class PrinterFssProbe:
             pos = self._get_position()
             pos[2] = target_position
             self._move(pos,target_speed)
-            self.toolhead.wait_moves()
+            toolhead = self.printer.lookup_object('toolhead')
+            toolhead.wait_moves()
 
         else:
             self.smart_dip(gcmd)
@@ -654,7 +655,7 @@ class PrinterFssProbe:
         self.last_exposure_post_delay = gcmd.get_float("POST_DELAY", 0 )
         self.last_gcmd = gcmd
 
-        self.toolhead = self.printer.lookup_object('toolhead')
+        toolhead = self.printer.lookup_object('toolhead')
         self.ledpwm = self.printer.lookup_object('output_pin LEDPWM')
 
 
@@ -667,7 +668,7 @@ class PrinterFssProbe:
                 self.resinheater.set_temp(0.0)
 
         self.exposure_active_flag = True
-        self.toolhead.register_lookahead_callback(self.exposure_timing_callback)
+        toolhead.register_lookahead_callback(self.exposure_timing_callback)
 
 
     def get_status(self, eventtime):
