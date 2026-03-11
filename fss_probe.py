@@ -463,7 +463,7 @@ class PrinterFssProbe:
 
         first_stage_target_position = pos.copy()
 
-        first_stage_target_position[2] = first_stage_target_position - dip_first_stage
+        first_stage_target_position[2] = first_stage_target_position[2] - dip_first_stage
         self._move(first_stage_target_position,vmax)
 
 
