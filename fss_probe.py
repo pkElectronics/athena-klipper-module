@@ -524,7 +524,8 @@ class PrinterFssProbe:
         if self.kinematic_mode != "smart":
             target_position = gcmd.get_float("TARGET", minval=0.)
             target_speed = gcmd.get_float("SPEED", minval=0.) / 60.0
-            pos = [0,0,target_position]
+            pos = self._get_position()
+            pos[2] = target_position
             self._move(pos,target_speed)
             self.toolhead.wait_moves()
 
