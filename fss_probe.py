@@ -427,7 +427,6 @@ class PrinterFssProbe:
 
     def smart_dip(self, gcmd):
         #this version is an approximation of a constant pressure velocity profile using a similar scheme as a g2 command
-        logging.info(f"into smart_dip command")
         mPa_to_gfmm2 = .0000102
         modulus_to_pressure = 100000.0 #This is pure guesswork
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
@@ -454,7 +453,6 @@ class PrinterFssProbe:
         e_plate_area = buildplate_area_mm2 * 0.75 # the circular eqiuvalent area which produces the same constant pressure curve
         pressure_mpa_maxforce = (max_force/e_plate_area)/mPa_to_gfmm2    #pressure on build plate corresponding to maximum force
 
-        toolhead = self.printer.lookup_object('toolhead')
         pos = self._get_position()
         dip_amount = pos[2] - target_position
 
@@ -469,7 +467,7 @@ class PrinterFssProbe:
 
         d_d = max(0.1,(0.218*((surface_area_mm2*pressure_gfmm2)**0.821)) / 1000)    # maximum arm deflection from retract force on layer area
         d_d2 = max(0.1, (0.218 * (max_force ** 0.821)) / 1000) # maximum arm deflection due to force on build plate
-        logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}")
+        logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}, First Stage Amound: {dip_first_stage}, First Stage Target: {first_stage_target_position[2]}, Second Stage: {dip_second_stage}")
 
         segments = max(1., math.floor(dip_second_stage / resolution))
 
@@ -477,7 +475,7 @@ class PrinterFssProbe:
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
                 step_pos[2] =  first_stage_target_position[2] - (i * resolution)
-                di = dip_amount + layerheight_mm - (i*resolution)
+                di = dip_second_stage + layerheight_mm - (i*resolution)
                 # velocity = minimum of velocity for maximum part pressure or velocity corresponding with maximum force
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 v2 = ((pressure_mpa_maxforce*math.pi*2*(d_d2+di)**3)/(3*viscosity_cps*e_plate_area))*(1 + (viscosity_coefficient*math.atan(((di)+d_d2)/(math.sqrt(e_plate_area/math.pi)))))
@@ -489,11 +487,12 @@ class PrinterFssProbe:
             for i in range(1, int(segments) + 1):
                 step_pos = [0. , 0. , 0. , 0.]
                 step_pos[2] =  first_stage_target_position[2] - (i * resolution)
-                di = dip_amount + layerheight_mm - (i*resolution)
+                di = dip_second_stage + layerheight_mm - (i*resolution)
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 velocity = min(max(v1,vmin),vmax)
                 self._move(step_pos,velocity)
 
+        toolhead = self.printer.lookup_object('toolhead')
         toolhead.wait_moves()
         pos = self._get_position()
 
