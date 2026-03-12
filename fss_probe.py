@@ -147,8 +147,9 @@ class PrinterFssProbe:
 
     def _move(self, position, speed):
         toolhead = self.printer.lookup_object('toolhead')
-        position[2] += self.z_offset
-        toolhead.move(position,speed)
+        p = position.copy()
+        p[2] += self.z_offset
+        toolhead.move(p,speed)
 
     def _get_position(self):
         toolhead = self.printer.lookup_object('toolhead')
@@ -457,11 +458,11 @@ class PrinterFssProbe:
         dip_amount = pos[2] - target_position
 
         dip_first_stage = dip_amount * 0.8
-        dip_second_stage = dip_amount - dip_first_stage
+        dip_second_stage = dip_amount * 0.2
 
-        first_stage_target_position = pos.copy()
+        first_stage_target_position = [0. , 0. , 0. , 0.]
 
-        first_stage_target_position[2] -=  dip_first_stage
+        first_stage_target_position[2] =  target_position + dip_second_stage
         self._move(first_stage_target_position,vmax)
 
 
@@ -641,7 +642,8 @@ class PrinterFssProbe:
 
     cmd_SET_Z_OFFSET_help = "Sets the z-offset for probing and smart moves"
     def cmd_SET_Z_OFFSET(self,gcmd):
-        self.z_offset = gcmd.get_float("OFFSET", 0 , minval=0. )
+        self.z_offset = gcmd.get_float("OFFSET", 0.0 , minval=0. )
+        logging.info(f"Update Z-Offset to: {self.z_offset}")
 
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
     def cmd_EXPOSE(self, gcmd):
