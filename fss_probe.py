@@ -165,7 +165,7 @@ class PrinterFssProbe:
 
         phoming = self.printer.lookup_object('homing')
         pos = self._get_position()
-        opos = pos[2]
+        opos = pos[2] + self.z_offset
         pos[2] += amount + self.z_offset
         epos = [pos[0], pos[1], pos[2]]
         try:
@@ -397,10 +397,14 @@ class PrinterFssProbe:
                 else:
                     pd_trigger_position = actual_lift_distance
 
+
+                pos = [0.0, 0.0, pd_trigger_position]
+
+
             else:
-                logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Triggered")
+                logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Triggered in first stage")
                 pd_trigger_position = stage1_distance
-                pos = [0.0, 0.0, actual_lift_distance]
+                pos = [0.0, 0.0, pd_trigger_position]
                 self._move(end_position, self.full_lift_speed)
 
         else:
