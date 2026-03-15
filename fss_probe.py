@@ -423,9 +423,9 @@ class PrinterFssProbe:
         toolhead.wait_moves()
 
         kinematics.set_accel_decel(saved_accel_decel)
-        logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
+        #logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
 
-        logstr = f"Smart Peel Move Stats - CL:{lift_total} | AL:{actual_lift_distance} | S1L:{stage1_distance} | S2L:{stage2_distance} | S1S:{stage1Speed*60.0} | S2S:{stage2Speed*60.0} | PDT:{pd_trigger_position} | Peel Detection: "
+        logstr = f"Smart Peel Move Stats - LP:{layer_position} | CL:{lift_total} | AL:{actual_lift_distance} | S1L:{stage1_distance} | S2L:{stage2_distance} | S1S:{stage1Speed*60.0} | S2S:{stage2Speed*60.0} | PDT:{pd_trigger_position} | Peel Detection: "
         if pd_trigger_position == 0.0:
             logstr += "Disabled"
         elif pd_trigger_position == stage1_distance:
@@ -485,7 +485,7 @@ class PrinterFssProbe:
 
         d_d = max(0.1,(0.218*((surface_area_mm2*pressure_gfmm2)**0.821)) / 1000)    # maximum arm deflection from retract force on layer area
         d_d2 = max(0.1, (0.218 * (max_force ** 0.821)) / 1000) # maximum arm deflection due to force on build plate
-        logging.info(f"Actual Dip Amount {dip_amount}, Target Z {target_position}, First Stage Amound: {dip_first_stage}, First Stage Target: {first_stage_target_position[2]}, Second Stage: {dip_second_stage}")
+        logging.info(f"Smart Dip Move Stats - DA:{dip_amount} | TZ:{target_position} | S1D:{dip_first_stage} | S1T:{first_stage_target_position[2]} | S2D:{dip_second_stage}")
 
         segments = max(1., math.floor(dip_second_stage / resolution))
 
