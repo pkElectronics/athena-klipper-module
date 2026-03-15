@@ -43,6 +43,8 @@ class ZonlyKinematics:
         self.dip_decel = config.getfloat('dip_decel', max_accel,
                                          above=0., maxval=max_accel)
 
+        self.accel_decel_baseline = self.get_accel_decel()
+
         self.homing_accel_decel = config.getfloat('homing_accel_decel', max_accel / 10,
                                                   above=0., maxval=max_accel)
 
@@ -73,7 +75,10 @@ class ZonlyKinematics:
         self.peel_decel = data["peel_decel"]
         self.dip_accel = data["dip_accel"]
         self.dip_decel = data["dip_decel"]
-        logging.info(f"Update AccelDecel - PA: {self.peel_accel} | PD: {self.peel_decel} | DA: {self.dip_accel} | DD: {self.dip_decel}")
+        #logging.info(f"Update AccelDecel - PA: {self.peel_accel} | PD: {self.peel_decel} | DA: {self.dip_accel} | DD: {self.dip_decel}")
+
+    def reset_accel_decel(self):
+        self.set_accel_decel(self.accel_decel_baseline)
 
     def calc_position(self, stepper_positions):
         return [0, 0, stepper_positions[self.z_rail.get_name()]]
@@ -158,7 +163,7 @@ class ZonlyKinematics:
             move_accel = self.peel_accel
             move_decel = self.peel_decel
 
-        logging.info(f"Commanded AccelDecel: A: {move_accel} D: {move_decel}")
+        #logging.info(f"Commanded AccelDecel: A: {move_accel} D: {move_decel}")
 
         z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
 
@@ -186,7 +191,7 @@ class ZonlyKinematics:
                 if calc_acceldecel_d(reachable_z_velocity, move_accel, move_decel) < abs(move.axes_d[2]):
                     break
 
-        logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
+        #logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
 
         move.limit_speed(reachable_z_velocity, move_accel * z_ratio, move_decel * z_ratio)
 

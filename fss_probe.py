@@ -151,6 +151,10 @@ class PrinterFssProbe:
         p[2] += self.z_offset
         toolhead.move(p,speed)
 
+    def _reset_accel_decel(self):
+        toolhead = self.printer.lookup_object('toolhead')
+        toolhead.get_kinematics().reset_accel_decel()
+
     def _get_position(self):
         toolhead = self.printer.lookup_object('toolhead')
         p = toolhead.get_position()
@@ -200,6 +204,8 @@ class PrinterFssProbe:
         lift_segment_distance = 0.2
         target_accel = 1000.
         base_accel = 0.1
+
+        self._reset_accel_decel()
 
         toolhead = self.printer.lookup_object('toolhead')
 
@@ -292,6 +298,8 @@ class PrinterFssProbe:
             else:
                 logging.info("Skipping due to hysteresis")
 
+        self._reset_accel_decel()
+
         return pos
 
     def smart_peel(self, gcmd):
@@ -312,7 +320,6 @@ class PrinterFssProbe:
         stage2_min_speed = lift_speed / 2
 
         effective_resin_level = min(self.last_resin_level,viscosity_cps / 250.0) #this is kinda experimental
-
 
         #calculations are performed in mm/min
 
@@ -345,7 +352,6 @@ class PrinterFssProbe:
 
         actual_lift_distance = stage1_distance + stage2_distance # recompute due to likely changes in previous code
 
-        logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
         #convert speeds to mm/s for klipper:
         stage1Speed = round(stage1Speed / 60, 2)
         stage2Speed = round(stage2Speed / 60, 2)
@@ -362,6 +368,7 @@ class PrinterFssProbe:
         end_position[2]= end_z
 
         kinematics = toolhead.get_kinematics()
+        self._reset_accel_decel()
 
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
@@ -386,6 +393,7 @@ class PrinterFssProbe:
         if position[2] > self.last_resin_level:
             toolhead.wait_moves()
             print_time = toolhead.get_last_move_time()
+            self._reset_accel_decel()
 
             if not self.mcu_probe.query_endstop(print_time):
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Not Triggered")
@@ -415,7 +423,9 @@ class PrinterFssProbe:
         toolhead.wait_moves()
 
         kinematics.set_accel_decel(saved_accel_decel)
-        logstr = f"Smart Peel Move Stats - Stage 1 Lift: {stage1_distance} | Stage 2 Lift: {stage2_distance} | Peel Detection: "
+        logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
+
+        logstr = f"Smart Peel Move Stats - CL:{lift_total} | AL:{actual_lift_distance} | S1L:{stage1_distance} | S2L:{stage2_distance} | S1S:{stage1Speed*60.0} | S2S:{stage2Speed*60.0} | PDT:{pd_trigger_position} | Peel Detection: "
         if pd_trigger_position == 0.0:
             logstr += "Disabled"
         elif pd_trigger_position == stage1_distance:
@@ -426,12 +436,15 @@ class PrinterFssProbe:
             logstr += f"During Stage 2 at {pd_trigger_position}mm ({round((pd_trigger_position/actual_lift_distance)*100)}% of total move"
         logging.warning(logstr)
 
+        self._reset_accel_decel()
+
         return pos
 
 
 
     def smart_dip(self, gcmd):
         #this version is an approximation of a constant pressure velocity profile using a similar scheme as a g2 command
+        self._reset_accel_decel()
         mPa_to_gfmm2 = .0000102
         modulus_to_pressure = 100000.0 #This is pure guesswork
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
@@ -500,6 +513,7 @@ class PrinterFssProbe:
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.wait_moves()
         pos = self._get_position()
+        self._reset_accel_decel()
 
         return pos
 
