@@ -43,6 +43,8 @@ class ZonlyKinematics:
         self.dip_decel = config.getfloat('dip_decel', max_accel,
                                          above=0., maxval=max_accel)
 
+        self.accel_decel_baseline = self.get_accel_decel()
+
         self.homing_accel_decel = config.getfloat('homing_accel_decel', max_accel / 10,
                                                   above=0., maxval=max_accel)
 
@@ -51,6 +53,11 @@ class ZonlyKinematics:
 
         self.axes_min = toolhead.Coord(0, 0, z_range[0], e=0.)
         self.axes_max = toolhead.Coord(0, 0, z_range[1], e=0.)
+
+        self.gcode = self.printer.lookup_object('gcode')
+
+        self.gcode.register_command('UPDATE_ACCEL_LIMITS', self.cmd_UPDATE_ACCEL_LIMITS)
+
 
     def get_steppers(self):
         return self.z_rail.get_steppers()
@@ -68,13 +75,17 @@ class ZonlyKinematics:
         self.peel_decel = data["peel_decel"]
         self.dip_accel = data["dip_accel"]
         self.dip_decel = data["dip_decel"]
+        #logging.info(f"Update AccelDecel - PA: {self.peel_accel} | PD: {self.peel_decel} | DA: {self.dip_accel} | DD: {self.dip_decel}")
+
+    def reset_accel_decel(self):
+        self.set_accel_decel(self.accel_decel_baseline)
 
     def calc_position(self, stepper_positions):
         return [0, 0, stepper_positions[self.z_rail.get_name()]]
 
     def set_position(self, newpos, homing_axes):
         self.z_rail.set_position(newpos)
-        if 2 in homing_axes:
+        if "z" in homing_axes:
             self.limit = self.z_rail.get_range()
 
     def clear_homing_state(self, clear_axes):
@@ -102,7 +113,7 @@ class ZonlyKinematics:
         self.save_peel_decel = self.peel_decel
         self.save_dip_decel = self.dip_decel
 
-        self.peel_accel = self.homing_accel_decel
+        #self.peel_accel = self.homing_accel_decel
         self.dip_accel = self.homing_accel_decel
         self.peel_decel = self.homing_accel_decel
         self.dip_decel = self.homing_accel_decel
@@ -152,6 +163,8 @@ class ZonlyKinematics:
             move_accel = self.peel_accel
             move_decel = self.peel_decel
 
+        #logging.info(f"Commanded AccelDecel: A: {move_accel} D: {move_decel}")
+
         z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
 
         if z_small_move_ratio < 1:
@@ -160,19 +173,25 @@ class ZonlyKinematics:
 
         reachable_z_velocity = self.max_z_velocity
 
-        for i in range(1,int(self.max_z_velocity), 1):
-            test_v = float(i)
-            accel_t = test_v/move_accel
-            decel_t = test_v/move_decel
-            accel_d = 0.5*move_accel*accel_t**2
-            decel_d = 0.5*move_decel*decel_t**2
+        def calc_acceldecel_d(test_v_int, move_accel_int, move_decel_int):
+            accel_t_int = test_v_int/move_accel_int
+            decel_t_int = test_v_int/move_decel_int
+            accel_d_int = 0.5*move_accel_int*accel_t_int**2
+            decel_d_int = 0.5*move_decel_int*decel_t_int**2
+            return accel_d_int + decel_d_int
 
-            if (accel_d+decel_d) < abs(move.axes_d[2]):
-                reachable_z_velocity = test_v
-            else:
+        for i in range(int(self.max_z_velocity),0, -1):
+            reachable_z_velocity = float(i)
+            if calc_acceldecel_d(reachable_z_velocity,move_accel, move_decel ) < abs(move.axes_d[2]):
                 break
 
-        logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
+        if reachable_z_velocity == 0:
+            for i in range(10, 1, -1):
+                reachable_z_velocity = float(i)/10.0
+                if calc_acceldecel_d(reachable_z_velocity, move_accel, move_decel) < abs(move.axes_d[2]):
+                    break
+
+        #logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
 
         move.limit_speed(reachable_z_velocity, move_accel * z_ratio, move_decel * z_ratio)
 
@@ -182,6 +201,14 @@ class ZonlyKinematics:
             'axis_minimum': self.axes_min,
             'axis_maximum': self.axes_max,
         }
+
+
+    def cmd_UPDATE_ACCEL_LIMITS(self, gcmd):
+        self.peel_accel = gcmd.get_float("PEEL_ACCEL", self.peel_accel, above=0.)
+        self.peel_decel = gcmd.get_float("PEEL_DECEL", self.peel_decel, above=0.)
+        self.dip_accel = gcmd.get_float("DIP_ACCEL", self.dip_accel, above=0.)
+        self.dip_decel = gcmd.get_float("DIP_DECEL", self.dip_decel, above=0.)
+        return True
 
 
 def load_kinematics(toolhead, config):

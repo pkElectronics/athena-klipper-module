@@ -3,6 +3,77 @@ import logging
 import os.path
 import time
 from json import JSONDecodeError
+import json
+import os
+import queue
+import tempfile
+import threading
+from typing import Dict, Any, Union
+
+
+class AsyncJSONFileWriter:
+    """
+    Offload JSON-encoded writes to a background thread.
+    - Use submit('file1', data) / submit('file2', data) to enqueue writes.
+    - Files are overwritten atomically (temp file + os.replace).
+    - Main thread remains non-blocking.
+    """
+
+    def __init__(self, file_map: Dict[str, Union[str, os.PathLike]], flush: bool = True):
+        """
+        file_map: e.g. {'file1': 'path/to/file1.json', 'file2': 'path/to/file2.json'}
+        flush: fsync writes for extra durability
+        """
+        self._paths = {k: os.fspath(v) for k, v in file_map.items()}
+        self._q: "queue.Queue[tuple[str, Any]]" = queue.Queue()
+        self._stop = threading.Event()
+        self._flush = flush
+        self._worker = threading.Thread(target=self._run, name="AsyncJSONFileWriter", daemon=True)
+        self._worker.start()
+
+    def submit(self, target: str, data: Any) -> None:
+        """Queue a write to the given target key from file_map."""
+        if target not in self._paths:
+            raise KeyError(f"Unknown target '{target}'. Valid: {list(self._paths)}")
+        # put_nowait keeps caller non-blocking (queue is unbounded)
+        self._q.put_nowait((target, data))
+
+    def _run(self) -> None:
+        while not self._stop.is_set() or not self._q.empty():
+            try:
+                target, data = self._q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+
+            path = self._paths[target]
+            payload = json.dumps(data, ensure_ascii=False)  # UTF-8 friendly
+            dirn = os.path.dirname(path) or "."
+
+            # Write to a temp file then replace -> atomic overwrite
+            fd, tmp = tempfile.mkstemp(prefix=".tmp_asyncwrite_", dir=dirn)
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    f.write(payload)
+                    if self._flush:
+                        f.flush()
+                        os.fsync(f.fileno())
+                os.replace(tmp, path)  # atomic on POSIX/Windows (same filesystem)
+            finally:
+                # If an exception occurred before replace, ensure temp file is removed
+                if os.path.exists(tmp):
+                    try:
+                        os.remove(tmp)
+                    except OSError:
+                        pass
+                self._q.task_done()
+
+    def stop(self, wait: bool = True) -> None:
+        """Signal the worker to stop. If wait=True, drain the queue before joining."""
+        self._stop.set()
+        if wait:
+            self._q.join()
+        self._worker.join(timeout=2)
+
 
 class SensorDataHandler:
 
@@ -45,12 +116,8 @@ class SensorDataHandler:
                 self.calibration_data[temp] = calib
                 calibration_changed = True
 
-            logging.info(f"Raw: {meas}, Calib: {calib}, Temp: {temp}")
-
             f = 100 / (calib - self.lower_threshold)
             meas = (meas - self.lower_threshold) * f
-
-            logging.info(f"Factor: {f}, Normalized: {meas}")
 
             self.normalized_data[temp] = round( meas,2)
 
@@ -86,6 +153,7 @@ class SensorDataHandler:
 
     def get_calibration_data_for_export(self):
         return self.calibration_data
+
 
 class DualVocSensor:
 
@@ -127,8 +195,15 @@ class DualVocSensor:
             self.inlet_calib = SensorDataHandler.empty()
             self.outlet_calib = SensorDataHandler.empty()
 
+        self.writer = AsyncJSONFileWriter({
+            "calib": self.calib_storage_path,
+            "data": self.data_storage_path,
+        })
+
         self.printer.register_event_handler("klippy:connect",
                                             self._handle_connect)
+
+        self.printer.register_event_handler("klippy:shutdown", self._handle_shutdown)
 
 
     def _handle_connect(self):
@@ -139,6 +214,9 @@ class DualVocSensor:
         self.sample_timer = self.reactor.register_timer(self._sample_voc)
         self.reactor.update_timer(self.sample_timer, self.reactor.NOW)
 
+    def _handle_shutdown(self):
+        self.store_data()
+        self.store_calib()
 
     def _sample_voc(self,eventtime):
 
@@ -151,21 +229,12 @@ class DualVocSensor:
         calib_changed &= changed[1]
 
         if data_changed:
-            logging.info("Storing Data")
-            self.store_data()
-
             if self.enable_respond:
                 self.dummy_gcode_cmd.respond_raw(f"VOCINLET:{self.inlet_calib.get_air_quality_indicator()[1]}")
                 self.dummy_gcode_cmd.respond_raw(f"VOCOUTLET:{self.outlet_calib.get_air_quality_indicator()[1]}")
 
-
-        if calib_changed:
-            logging.info("Storing Calibration")
-            self.store_calib()
-
-
         measured_time = self.reactor.monotonic()
-        return measured_time + 1
+        return measured_time + 5
 
     def store_data(self):
         inlet_data = self.inlet_calib.get_measurement_data_for_export()
@@ -175,8 +244,7 @@ class DualVocSensor:
         out["inlet"] = inlet_data
         out["outlet"] = outlet_data
 
-        with open(self.data_storage_path, "w") as f:
-            json.dump(out, f)
+        self.writer.submit("data", out)
 
     def store_calib(self):
         inlet_calibration_values = self.inlet_calib.get_calibration_data_for_export()
@@ -185,8 +253,12 @@ class DualVocSensor:
         out["inlet"] = inlet_calibration_values
         out["outlet"] = outlet_calibration_values
 
-        with open(self.calib_storage_path, "w") as f:
-            json.dump(out, f)
+        self.writer.submit("calib", out)
+
+    def get_status(self, eventtime):
+        return {
+            'none': True
+        }
 
 def load_config(config):
     return DualVocSensor(config)
