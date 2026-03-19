@@ -326,7 +326,7 @@ class PrinterFssProbe:
         pos = self._get_position()
         layer_position = pos[2]
 
-        stage1_distance = min(lift_total - 1, max(1, round(lift_total / pow(3 * modulus_gpa, 2 / 3), 1)))
+        stage1_distance = min(2.5, max(1, round(lift_total / pow(3 * modulus_gpa, 2 / 3), 1)))
         stage2_distance = lift_total - stage1_distance
 
         logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
@@ -339,7 +339,7 @@ class PrinterFssProbe:
             areaRatio = largest_surface_area_mm2 / self.buildplate_area
             areaFactor = pow(areaRatio, 1 / 4)
             minSpeed = max(stage1_max_speed, lift_speed * (modulus_gpa / 6 + 1/2))
-            stage2_distance = round((1 + stage2_distance * areaFactor),1)
+            stage2_distance = round((2 + stage2_distance * areaFactor),1)
             speed = round((minSpeed + (lift_speed - minSpeed) * (1-areaFactor)) , 2)
 
 
