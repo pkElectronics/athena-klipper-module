@@ -163,15 +163,13 @@ class ZonlyKinematics:
             move_accel = self.peel_accel
             move_decel = self.peel_decel
 
-        #logging.info(f"Commanded AccelDecel: A: {move_accel} D: {move_decel}")
-
         z_small_move_ratio = min((abs(move.axes_d[2]) / 2), 1)
 
         if z_small_move_ratio < 1:
             move_accel = min(move_accel,move_decel)
             move_decel = move_accel
 
-        reachable_z_velocity = self.max_z_velocity
+        reachable_z_velocity = self.max_z_velocity * z_ratio
 
         def calc_acceldecel_d(test_v_int, move_accel_int, move_decel_int):
             accel_t_int = test_v_int/move_accel_int
@@ -180,18 +178,17 @@ class ZonlyKinematics:
             decel_d_int = 0.5*move_decel_int*decel_t_int**2
             return accel_d_int + decel_d_int
 
-        for i in range(int(self.max_z_velocity),0, -1):
-            reachable_z_velocity = float(i)
-            if calc_acceldecel_d(reachable_z_velocity,move_accel, move_decel ) < abs(move.axes_d[2]):
-                break
-
-        if reachable_z_velocity == 0:
-            for i in range(10, 1, -1):
-                reachable_z_velocity = float(i)/10.0
-                if calc_acceldecel_d(reachable_z_velocity, move_accel, move_decel) < abs(move.axes_d[2]):
+        if  move_accel != move_decel:
+            for i in range(int(self.max_z_velocity),0, -1):
+                reachable_z_velocity = float(i)
+                if calc_acceldecel_d(reachable_z_velocity,move_accel, move_decel ) < abs(move.axes_d[2]):
                     break
 
-        #logging.info("Kinematics output reachable_velocity: %f accel: %f decel: %f ratio: %f" % (reachable_z_velocity, move_accel, move_decel, z_small_move_ratio))
+            if reachable_z_velocity == 0:
+                for i in range(10, 1, -1):
+                    reachable_z_velocity = float(i)/10.0
+                    if calc_acceldecel_d(reachable_z_velocity, move_accel, move_decel) < abs(move.axes_d[2]):
+                        break
 
         move.limit_speed(reachable_z_velocity, move_accel * z_ratio, move_decel * z_ratio)
 

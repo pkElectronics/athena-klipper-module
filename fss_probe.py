@@ -6,6 +6,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import math
+from time import sleep
 from typing import Callable, Tuple
 import pins
 from webhooks import Sentinel
@@ -66,8 +67,6 @@ class PrinterFssProbe:
         self.x_px = 19
         self.y_px = 14
         self.total_screen_area = (self.x_res * self.x_px) * (self.y_res * self.y_px)
-
-
 
         self.reactor = self.printer.get_reactor()
 
@@ -132,6 +131,7 @@ class PrinterFssProbe:
 
         self.gcode.register_command('ATHENA_DIP', self.cmd_ATHENA_DIP)
         self.gcode.register_command('ATHENA_PEEL', self.cmd_ATHENA_PEEL)
+
 
     def setup_pin(self, pin_type, pin_params):
         if pin_type != 'endstop' or pin_params['pin'] != 'z_virtual_endstop':
@@ -302,6 +302,25 @@ class PrinterFssProbe:
 
         return pos
 
+
+    def _smart_peel_compute_lift_accel(self,base_accel, target_accel, segment_idx, total_segments):
+
+        # normalize to 0..1
+        t = segment_idx / total_segments
+
+        # clamp
+        if t <= 0.0:
+            ratio = 0.0
+        elif t >= 1.0:
+            ratio = 1.0
+        else:
+            # smoothstep
+            ratio = t * t * (3.0 - 2.0 * t)
+
+        acc = ((target_accel - base_accel) * ratio) + base_accel
+
+        return acc
+
     def smart_peel(self, gcmd):
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
         lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.)
@@ -357,6 +376,7 @@ class PrinterFssProbe:
         stage2Speed = round(stage2Speed / 60, 2)
 
         lift_segment_distance = 0.2
+        lift_segment_distance_um = 1
         target_accel = 1000.
         base_accel = 0.1
 
@@ -369,31 +389,52 @@ class PrinterFssProbe:
 
         kinematics = toolhead.get_kinematics()
         self._reset_accel_decel()
-
         saved_accel_decel = kinematics.get_accel_decel()
         stage1_accel_decel = saved_accel_decel.copy()
+        stage2_accel_decel = saved_accel_decel.copy()
         stage1_accel_decel["peel_accel"] = base_accel
-        stage1_accel_decel["peel_decel"] = target_accel
+        stage1_accel_decel["peel_decel"] = base_accel
         kinematics.set_accel_decel(stage1_accel_decel)
 
-        segments = int(stage1_distance / lift_segment_distance)
-        for i in range(1, segments):
+        stage1_distance_um = round(stage1_distance * 1000.0)
+
+        segments = int(stage1_distance_um / lift_segment_distance_um)
+
+        remainder = stage1_distance_um - (segments * lift_segment_distance_um)
+
+        for i in range(0, segments):
             pos = position.copy()
-            pos[2] += i * lift_segment_distance
+            pos[2] += (i+1) * lift_segment_distance_um / 1000.
             acc = saved_accel_decel.copy()
-            acc["peel_accel"] = min(target_accel, base_accel * 2 ** i)
+            acc["peel_accel"] = acc["peel_decel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,i,segments)
             kinematics.set_accel_decel(acc)
             self._move(pos, stage1Speed)
 
-        stage1_accel_decel["peel_accel"] = 1000
+        if remainder > 0:
+            logging.warning(f"Remainder Move: {remainder}um")
+            pos = position.copy()
+            pos[2] += (segments * lift_segment_distance_um / 1000.) + ( remainder / 1000.)
+
+        stage1_accel_decel["peel_accel"] = stage1_accel_decel["peel_decel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
         pd_trigger_position = 0.0
 
+        waittime = 0.0
+
         if position[2] > self.last_resin_level:
-            toolhead.wait_moves()
-            print_time = toolhead.get_last_move_time()
+
+            while len(toolhead.lookahead.queue) > 10 and waittime < 10.:
+                eventtime = self.reactor.monotonic()
+                eventtime = self.reactor.pause(eventtime + 0.10)
+                waittime += 0.1
+
+
+            if waittime > 10.:
+                logging.warning("PD State timeout")
             self._reset_accel_decel()
+
+            print_time = toolhead.get_last_move_time()
 
             if not self.mcu_probe.query_endstop(print_time):
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Not Triggered")
@@ -401,6 +442,8 @@ class PrinterFssProbe:
                 if pos[2] != stage2_distance:
                     logging.warning(f"Smart Peel - PeelDetection Triggered - Doing final move")
                     pd_trigger_position = pos[2] + stage1_distance
+                    stage2_accel_decel["peel_accel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,segments,segments)
+                    kinematics.set_accel_decel(stage2_accel_decel)
                     self._move(end_position, self.full_lift_speed)
                 else:
                     pd_trigger_position = actual_lift_distance
@@ -413,6 +456,8 @@ class PrinterFssProbe:
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Triggered in first stage")
                 pd_trigger_position = stage1_distance
                 pos = [0.0, 0.0, pd_trigger_position]
+                stage2_accel_decel["peel_accel"] = self._smart_peel_compute_lift_accel(base_accel, target_accel,segments,segments)
+                kinematics.set_accel_decel(stage2_accel_decel)
                 self._move(end_position, self.full_lift_speed)
 
         else:
@@ -425,7 +470,7 @@ class PrinterFssProbe:
         kinematics.set_accel_decel(saved_accel_decel)
         #logging.warning(f"Smart Peel - Commanded Lift: {lift_total} | Stage 1 Lift: {stage1_distance} | Stage 1 Speed: {stage1Speed} | Stage 2 Lift: {stage2_distance} | Stage 2 Speed: {stage2Speed}")
 
-        logstr = f"Smart Peel Move Stats - LP:{layer_position} | CL:{lift_total} | AL:{actual_lift_distance} | S1L:{stage1_distance} | S2L:{stage2_distance} | S1S:{stage1Speed*60.0} | S2S:{stage2Speed*60.0} | PDT:{pd_trigger_position} | Peel Detection: "
+        logstr = f"Smart Peel Move Stats - LP:{layer_position} | CL:{lift_total} | AL:{actual_lift_distance} | S1L:{stage1_distance} | S2L:{stage2_distance} | S1S:{round(stage1Speed*60.0,2)} | S2S:{round(stage2Speed*60.0,2)} | PDT:{round(pd_trigger_position,2)} | Peel Detection: "
         if pd_trigger_position == 0.0:
             logstr += "Disabled"
         elif pd_trigger_position == stage1_distance:
@@ -464,6 +509,7 @@ class PrinterFssProbe:
 
         # constant factors for generating velocity profile
         resolution = self.smart_dip_segment_resolution # similar to g2 gcode
+        resolution = 5
         vmin = 0.05 # minimum velocity 0.3mm/min
         vmax = target_speed / 60   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
@@ -474,8 +520,8 @@ class PrinterFssProbe:
         pos = self._get_position()
         dip_amount = pos[2] - target_position
 
-        dip_first_stage = dip_amount * 0.8
-        dip_second_stage = dip_amount * 0.2
+        dip_first_stage = round(dip_amount * 0.8,2) #documentation only, not used for compute
+        dip_second_stage = round(dip_amount * 0.2,2)
 
         first_stage_target_position = [0. , 0. , 0. , 0.]
 
@@ -487,13 +533,16 @@ class PrinterFssProbe:
         d_d2 = max(0.1, (0.218 * (max_force ** 0.821)) / 1000) # maximum arm deflection due to force on build plate
         logging.info(f"Smart Dip Move Stats - DA:{dip_amount} | TZ:{target_position} | S1D:{dip_first_stage} | S1T:{first_stage_target_position[2]} | S2D:{dip_second_stage}")
 
-        segments = max(1., math.floor(dip_second_stage / resolution))
+        dip_second_stage_um = round(dip_second_stage * 1000.0)
+        segments = round(dip_second_stage_um / resolution)
+
+        remainder = dip_second_stage_um - (segments * resolution)
 
         if target_position < resin_level_mm:
-            for i in range(1, int(segments) + 1):
+            for i in range(1, segments + 1):
                 step_pos = [0. , 0. , 0. , 0.]
-                step_pos[2] =  first_stage_target_position[2] - (i * resolution)
-                di = dip_second_stage + layerheight_mm - (i*resolution)
+                step_pos[2] =  first_stage_target_position[2] - (i * resolution) / 1000.
+                di = dip_second_stage + layerheight_mm - (i*resolution)/ 1000.
                 # velocity = minimum of velocity for maximum part pressure or velocity corresponding with maximum force
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 v2 = ((pressure_mpa_maxforce*math.pi*2*(d_d2+di)**3)/(3*viscosity_cps*e_plate_area))*(1 + (viscosity_coefficient*math.atan(((di)+d_d2)/(math.sqrt(e_plate_area/math.pi)))))
@@ -502,13 +551,18 @@ class PrinterFssProbe:
                 self._move(step_pos,velocity)
 
         else:
-            for i in range(1, int(segments) + 1):
+            for i in range(1, segments + 1):
                 step_pos = [0. , 0. , 0. , 0.]
-                step_pos[2] =  first_stage_target_position[2] - (i * resolution)
-                di = dip_second_stage + layerheight_mm - (i*resolution)
+                step_pos[2] =  first_stage_target_position[2] - (i * resolution)/ 1000.
+                di = dip_second_stage + layerheight_mm - (i*resolution)/ 1000.
                 v1 = (3*(pressure_mpa*math.pi*2*(d_d+di)**3)/(3*viscosity_cps*surface_area_mm2))*(1 + (viscosity_coefficient*math.atan(((di)+d_d)/(math.sqrt(surface_area_mm2/math.pi)))))
                 velocity = min(max(v1,vmin),vmax)
                 self._move(step_pos,velocity)
+
+        if remainder > 0:
+            logging.warning(f"Remainder Move: {remainder}um")
+            step_pos = [0., 0., target_position, 0.]
+            self._move(step_pos,vmin)
 
         toolhead = self.printer.lookup_object('toolhead')
         toolhead.wait_moves()
