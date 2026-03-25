@@ -26,7 +26,7 @@ class PrinterFssProbe:
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
-        self.smart_dip_segment_resolution = config.getfloat("smart_dip_segment_resolution", 0.005, above=0.)
+        self.smart_move_segment_resolution = config.getint("smart_move_segment_resolution", 5, minval=1)
         self.full_lift_speed = None
 
         self.buildplate_area = 120*210 #make configurable in the future
@@ -375,8 +375,7 @@ class PrinterFssProbe:
         stage1Speed = round(stage1Speed / 60, 2)
         stage2Speed = round(stage2Speed / 60, 2)
 
-        lift_segment_distance = 0.2
-        lift_segment_distance_um = 1
+        lift_segment_distance_um = self.smart_move_segment_resolution
         target_accel = 1000.
         base_accel = 0.1
 
@@ -508,8 +507,8 @@ class PrinterFssProbe:
             surface_area_mm2 = self.total_screen_area*0.2
 
         # constant factors for generating velocity profile
-        resolution = self.smart_dip_segment_resolution # similar to g2 gcode
-        resolution = 5
+        resolution = self.smart_move_segment_resolution # similar to g2 gcode
+
         vmin = 0.05 # minimum velocity 0.3mm/min
         vmax = target_speed / 60   # maximum velocity 600mm/min
         max_force = 20000 #maximum force a retract move will try to achieve
