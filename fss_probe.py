@@ -408,6 +408,8 @@ class PrinterFssProbe:
             acc["peel_accel"] = acc["peel_decel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,i,segments)
             kinematics.set_accel_decel(acc)
             self._move(pos, stage1Speed)
+            eventtime = self.reactor.monotonic()
+            eventtime = self.reactor.pause(eventtime + 0.005) # this is a hack
 
         if remainder > 0:
             logging.warning(f"Remainder Move: {remainder}um")
