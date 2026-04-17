@@ -319,7 +319,7 @@ class PrinterFssProbe:
 
         acc = ((target_accel - base_accel) * ratio) + base_accel
 
-        return acc
+        return max(round(acc,1),base_accel)
 
     def smart_peel(self, gcmd):
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
