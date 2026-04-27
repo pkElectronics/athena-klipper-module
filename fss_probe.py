@@ -149,7 +149,8 @@ class PrinterFssProbe:
         toolhead = self.printer.lookup_object('toolhead')
         p = position.copy()
         p[2] += self.z_offset
-        toolhead.move(p,speed)
+        p[2] = round(p[2],5)
+        toolhead.move(p,round(speed,2))
 
     def _reset_accel_decel(self):
         toolhead = self.printer.lookup_object('toolhead')
@@ -170,10 +171,10 @@ class PrinterFssProbe:
         phoming = self.printer.lookup_object('homing')
         pos = self._get_position()
         opos = pos[2] + self.z_offset
-        pos[2] += amount + self.z_offset
+        pos[2] += round(amount,4) + self.z_offset
         epos = [pos[0], pos[1], pos[2]]
         try:
-            epos = phoming.probing_move(self.mcu_probe, pos, speed)
+            epos = phoming.probing_move(self.mcu_probe, pos, round(speed,2))
 
             epos[2] = epos[2] - opos
         except self.printer.command_error as e:
