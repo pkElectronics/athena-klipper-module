@@ -6,6 +6,7 @@
 # This file may be distributed under the terms of the GNU GPLv3 license.
 import logging
 import math
+import time
 from time import sleep
 from typing import Callable, Tuple
 import pins
@@ -323,6 +324,8 @@ class PrinterFssProbe:
         return max(round(acc,1),base_accel)
 
     def smart_peel(self, gcmd):
+        starttime = time_helper = time.time()
+
         lift_total = gcmd.get_float("LIFT_TOTAL", above=0.)
         lift_speed = gcmd.get_float("SPEED", self.lift_speed, above=0.)
 
@@ -348,8 +351,8 @@ class PrinterFssProbe:
 
         stage1_distance = min(lift_total - 1, max(1, round(lift_total / pow(3 * modulus_gpa, 2 / 3), 1)))
         stage2_distance = lift_total - stage1_distance
-
-        logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance}")
+        time_helper = time.time()
+        logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance} | Took {time_helper-starttime}s")
 
         if layer_position < effective_resin_level:
             speed = lift_speed/2
@@ -402,6 +405,9 @@ class PrinterFssProbe:
 
         remainder = stage1_distance_um - (segments * lift_segment_distance_um)
 
+        logging.warning(f"Smart Peel - Linear computation done. Took: {time.time() - time_helper}s")
+        time_helper = time.time()
+
         for i in range(0, segments):
             pos = position.copy()
             pos[2] += (i+1) * lift_segment_distance_um / 1000.
@@ -409,9 +415,11 @@ class PrinterFssProbe:
             acc["peel_accel"] = acc["peel_decel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,i,segments)
             kinematics.set_accel_decel(acc)
             self._move(pos, stage1Speed)
-            eventtime = self.reactor.monotonic()
-            eventtime = self.reactor.pause(eventtime + 0.005) # this is a hack
+            #eventtime = self.reactor.monotonic()
+            #eventtime = self.reactor.pause(eventtime + 0.005) # this is a hack
 
+        logging.warning(f"Smart Peel - Move computation done. Took: {time.time() - time_helper}s")
+        time_helper = time.time()
         if remainder > 0:
             logging.warning(f"Remainder Move: {remainder}um")
             pos = position.copy()
@@ -482,7 +490,7 @@ class PrinterFssProbe:
         else:
             logstr += f"During Stage 2 at {pd_trigger_position}mm ({round((pd_trigger_position/actual_lift_distance)*100)}% of total move"
         logging.warning(logstr)
-
+        logging.warning(f"Smart Peel - Move finished. Took {time.time() - time_helper}s | Total Command Time: {time.time() - starttime}s")
         self._reset_accel_decel()
 
         return pos
