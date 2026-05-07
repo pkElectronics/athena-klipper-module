@@ -415,6 +415,8 @@ class PrinterFssProbe:
             acc["peel_accel"] = acc["peel_decel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,i,segments)
             kinematics.set_accel_decel(acc)
             self._move(pos, stage1Speed)
+            if i % 20 == 0:
+                logging.warning(f"Processed {i} of {segments} segments")
             #eventtime = self.reactor.monotonic()
             #eventtime = self.reactor.pause(eventtime + 0.005) # this is a hack
 
