@@ -27,7 +27,7 @@ class PrinterFssProbe:
         self.lift_speed = config.getfloat('lift_speed', 10.0, above=0.)
         self.lift_amount = config.getfloat('lift_amount', 10.0, above=0.)
         self.min_lift_distance = config.getfloat('min_lift_distance', 2.0, above=.5)
-        self.smart_move_segment_resolution = config.getint("smart_move_segment_resolution", 5, minval=1)
+        self.smart_move_segment_resolution = config.getint("smart_move_segment_resolution", 10, minval=1)
         self.full_lift_speed = None
 
         self.buildplate_area = 120*210 #make configurable in the future
