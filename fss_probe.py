@@ -411,6 +411,7 @@ class PrinterFssProbe:
         for i in range(0, segments):
             pos = position.copy()
             pos[2] += (i+1) * lift_segment_distance_um / 1000.
+            pos[2] = round(pos[2], 3)
             acc = saved_accel_decel.copy()
             acc["peel_accel"] = acc["peel_decel"] = self._smart_peel_compute_lift_accel(base_accel,target_accel,i,segments)
             kinematics.set_accel_decel(acc)
