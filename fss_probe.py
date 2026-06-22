@@ -10,6 +10,7 @@ import time
 from time import sleep
 from typing import Callable, Tuple
 import pins
+from toolhead import ToolHead
 from webhooks import Sentinel
 
 HINT_TIMEOUT = """
@@ -585,10 +586,16 @@ class PrinterFssProbe:
         return pos
 
     def run_probe_downwards(self, gcmd):
-        dip_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-        dip_amount = gcmd.get_float("Z", 0, minval=0.)
-        move_absolute = gcmd.get_int("ABS",0, minval=0, maxval=1)
         toolhead = self.printer.lookup_object('toolhead')
+
+        move_absolute = gcmd.get_int("ABS",0, minval=0, maxval=1)
+        dip_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
+
+        if move_absolute == 1:
+            dip_amount = gcmd.get_float("Z", 0, minval=toolhead.get_kinematics().axes_min[2])
+        else:
+            dip_amount = gcmd.get_float("Z", 0, minval=0.)
+
         pos = self._get_position()
 
         if move_absolute == 1:
