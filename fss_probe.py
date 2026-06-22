@@ -734,7 +734,9 @@ class PrinterFssProbe:
 
     cmd_SET_Z_OFFSET_help = "Sets the z-offset for probing and smart moves"
     def cmd_SET_Z_OFFSET(self,gcmd):
-        self.z_offset = gcmd.get_float("OFFSET", 0.0 , minval=0. )
+        toolhead = self.printer.lookup_object('toolhead')
+
+        self.z_offset = gcmd.get_float("OFFSET", 0.0 , minval=toolhead.get_kinematics().axes_min[2] )
         logging.info(f"Update Z-Offset to: {self.z_offset}")
 
     cmd_EXPOSE_help = "Exposes a layer for a given time with a given PWM setting"
