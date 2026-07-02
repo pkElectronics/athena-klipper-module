@@ -57,6 +57,7 @@ class ZonlyKinematics:
         self.gcode = self.printer.lookup_object('gcode')
 
         self.gcode.register_command('UPDATE_ACCEL_LIMITS', self.cmd_UPDATE_ACCEL_LIMITS)
+        self.gcode.register_command('RESET_ACCEL_LIMITS', self.cmd_RESET_ACCEL_LIMITS)
 
 
     def get_steppers(self):
@@ -206,6 +207,9 @@ class ZonlyKinematics:
         self.dip_accel = gcmd.get_float("DIP_ACCEL", self.dip_accel, above=0.)
         self.dip_decel = gcmd.get_float("DIP_DECEL", self.dip_decel, above=0.)
         return True
+
+    def cmd_RESET_ACCEL_LIMITS(self,gcmd):
+        self.reset_accel_decel()
 
 
 def load_kinematics(toolhead, config):
