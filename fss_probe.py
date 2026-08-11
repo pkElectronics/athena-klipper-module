@@ -173,10 +173,15 @@ class PrinterFssProbe:
         phoming = self.printer.lookup_object('homing')
         pos = self._get_position()
         opos = pos[2] + self.z_offset
-        pos[2] += round(amount,4) + self.z_offset
-        epos = [pos[0], pos[1], pos[2]]
+        # Keep logical and physical targets distinct: pos stays logical so later
+        # _move() calls do not double-apply z_offset.
+        logical_target = list(pos)
+        logical_target[2] = round(pos[2] + amount, 4)
+        physical_target = list(logical_target)
+        physical_target[2] = round(logical_target[2] + self.z_offset, 5)
         try:
-            epos = phoming.probing_move(self.mcu_probe, pos, round(speed,2))
+            epos = phoming.probing_move(self.mcu_probe, physical_target,
+                                        round(speed, 2))
 
             epos[2] = epos[2] - opos
         except self.printer.command_error as e:
@@ -191,7 +196,7 @@ class PrinterFssProbe:
                 epos[2] = amount
 
             elif "Probe triggered prior to movement" in reason:
-                self._move(pos, speed)
+                self._move(logical_target, speed)
                 epos = self._get_position()
                 epos[2] = amount
 
