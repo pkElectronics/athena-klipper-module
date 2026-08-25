@@ -81,7 +81,9 @@ class PulseOut:
 
     def get_status(self, eventtime):
         return {
-            'none': True
+            'active': self.pulse_out_active,
+            'pre_delay': self.last_pulse_out_pre_delay,
+            'time': self.last_pulse_out_time,
         }
 
 def load_config_prefix(config):
