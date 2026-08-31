@@ -54,10 +54,13 @@ class ZonlyKinematics:
         self.axes_min = toolhead.Coord(0, 0, z_range[0], e=0.)
         self.axes_max = toolhead.Coord(0, 0, z_range[1], e=0.)
 
+        self.block_downward_until_homed = False
+
         self.gcode = self.printer.lookup_object('gcode')
 
         self.gcode.register_command('UPDATE_ACCEL_LIMITS', self.cmd_UPDATE_ACCEL_LIMITS)
         self.gcode.register_command('RESET_ACCEL_LIMITS', self.cmd_RESET_ACCEL_LIMITS)
+        self.gcode.register_command('KINEMATIC_BLOCK_DOWNWARD', self.cmd_KINEMATIC_BLOCK_DOWNWARD)
 
 
     def get_steppers(self):
@@ -129,6 +132,7 @@ class ZonlyKinematics:
         self.dip_accel = self.save_dip_accel
         self.peel_decel = self.save_peel_decel
         self.dip_decel = self.save_dip_decel
+        self.block_downward_until_homed = False
 
     def home(self, homing_state):
         # Only z axis homing is respected
@@ -150,6 +154,10 @@ class ZonlyKinematics:
         if not move.axes_d[2]:
             # Normal XY move - use defaults
             return
+        if (self.block_downward_until_homed and move.axes_d[2]
+                and move.start_pos[2] > move.end_pos[2]):
+            raise move.move_error(
+                "Downward move blocked — home Z first")
         # Move with Z - update velocity and accel for slower Z axis
         self._check_endstops(move)
         z_ratio = move.move_d / abs(move.axes_d[2])
@@ -198,6 +206,7 @@ class ZonlyKinematics:
             'homed_axes': "z" if self.limit[0] < self.limit[1] else "",
             'axis_minimum': self.axes_min,
             'axis_maximum': self.axes_max,
+            'downward_blocked': self.block_downward_until_homed,
         }
 
 
@@ -210,6 +219,10 @@ class ZonlyKinematics:
 
     def cmd_RESET_ACCEL_LIMITS(self,gcmd):
         self.reset_accel_decel()
+
+    def cmd_KINEMATIC_BLOCK_DOWNWARD(self, gcmd):
+        self.block_downward_until_homed = True
+        gcmd.respond_info("Downward Z moves blocked until next successful home")
 
 
 def load_kinematics(toolhead, config):
