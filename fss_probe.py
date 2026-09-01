@@ -182,7 +182,7 @@ class PrinterFssProbe:
         p[2] -= self.z_offset
         return p
 
-    def _probe(self, speed, amount, allow_no_trigger=False):
+    def _probe(self, speed, amount, strict=False):
         toolhead = self.printer.lookup_object('toolhead')
         curtime = self.printer.get_reactor().monotonic()
         if 'z' not in toolhead.get_status(curtime)['homed_axes']:
@@ -217,19 +217,25 @@ class PrinterFssProbe:
                 raise self.printer.command_error(reason)
 
             elif "No trigger on probe after full movement" in reason:
-                if allow_no_trigger:
-                    self.gcode_move.reset_last_position()
-                    epos = self._get_position()
-                    epos[2] = amount
-                else:
+                if strict:
                     raise self.printer.command_error(
                         "Force probe failed: no trigger after full movement — "
                         "re-home required")
+                # Normal print/crash/peel/resin probes: full travel without
+                # trigger is expected and not an error.
+                self.gcode_move.reset_last_position()
+                epos = self._get_position()
+                epos[2] = amount
 
             elif "Probe triggered prior to movement" in reason:
-                raise self.printer.command_error(
-                    "Force probe failed: sensor triggered before move — "
-                    "re-home required")
+                if strict:
+                    raise self.printer.command_error(
+                        "Force probe failed: sensor triggered before move — "
+                        "re-home required")
+                self._move(logical_target, speed)
+                self.gcode_move.reset_last_position()
+                epos = self._get_position()
+                epos[2] = amount
 
             else:
                 raise self.printer.command_error(reason)
@@ -278,7 +284,7 @@ class PrinterFssProbe:
         print_time = toolhead.get_last_move_time()
 
         if not self.mcu_probe.query_endstop(print_time):
-            pos = self._probe(lift_speed, lift_amount - stage1_lift_distance, allow_no_trigger=True)
+            pos = self._probe(lift_speed, lift_amount - stage1_lift_distance)
         else:
             pos = [0.0,0.0,self.min_lift_distance]
 
@@ -529,7 +535,7 @@ class PrinterFssProbe:
 
             if not self.mcu_probe.query_endstop(print_time):
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Not Triggered")
-                pos = self._probe(stage2Speed, stage2_distance, allow_no_trigger=True)
+                pos = self._probe(stage2Speed, stage2_distance)
                 if pos[2] != stage2_distance:
                     logging.warning(f"Smart Peel - PeelDetection Triggered - Doing final move")
                     pd_trigger_position = pos[2] + stage1_distance
@@ -615,7 +621,7 @@ class PrinterFssProbe:
 
             if not self.mcu_probe.query_endstop(print_time):
                 logging.warning(f"Smart Peel - Above Resin Level - PeelDetection Not Triggered")
-                pos = self._probe(stage2Speed, stage2_distance, allow_no_trigger=True)
+                pos = self._probe(stage2Speed, stage2_distance)
                 if pos[2] != stage2_distance:
                     logging.warning(f"Smart Peel - PeelDetection Triggered - Doing final move")
                     pd_trigger_position = pos[2] + stage1_distance
@@ -812,13 +818,13 @@ class PrinterFssProbe:
 
         return pos
 
-    def run_probe_downwards(self, gcmd, allow_no_trigger=None):
+    def run_probe_downwards(self, gcmd, strict=None):
         toolhead = self.printer.lookup_object('toolhead')
 
         move_absolute = gcmd.get_int("ABS",0, minval=0, maxval=1)
         dip_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-        if allow_no_trigger is None:
-            allow_no_trigger = gcmd.get_int("ALLOW_NO_TRIGGER", 0, minval=0, maxval=1)
+        if strict is None:
+            strict = gcmd.get_int("STRICT", 0, minval=0, maxval=1)
 
         if move_absolute == 1:
             dip_amount = gcmd.get_float("Z", 0, minval=toolhead.get_kinematics().axes_min[2])
@@ -835,7 +841,7 @@ class PrinterFssProbe:
         else:
             dip_amount = -1 * dip_amount
 
-        self._probe(dip_speed, dip_amount, allow_no_trigger=bool(allow_no_trigger))
+        self._probe(dip_speed, dip_amount, strict=bool(strict))
 
         pos = self._get_position()
 
@@ -907,7 +913,7 @@ class PrinterFssProbe:
         toolhead = self.printer.lookup_object('toolhead')
         pos = None
         for attempt in range(4):
-            pos = self.run_probe_downwards(gcmd, allow_no_trigger=True)
+            pos = self.run_probe_downwards(gcmd)
             physical_z = pos[2] + self.z_offset
             logging.info(
                 "Resin probe attempt %d: logical=%.2f physical=%.2f z_offset=%.2f",
