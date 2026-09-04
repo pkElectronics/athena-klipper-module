@@ -245,19 +245,18 @@ class PrinterFssProbe:
     def run_probe_upwards(self, gcmd):
         lift_amount = gcmd.get_float("Z", self.lift_amount, minval=0.)
         lift_speed = gcmd.get_float("F", self.lift_speed, above=0.) / 60
-        stage1_lift_distance = 0.2
         lift_segment_distance = 0.2
         target_accel = 1000.
         base_accel = 0.1
+        # Cap min-lift padding to the commanded peel distance.
+        min_required = min(float(self.min_lift_distance), lift_amount)
 
         self._reset_accel_decel()
 
         toolhead = self.printer.lookup_object('toolhead')
 
         position = self._get_position()
-
-        stage1_position = position.copy()
-        stage1_position[2] += stage1_lift_distance
+        start_z = position[2]
 
         kinematics = toolhead.get_kinematics()
 
@@ -267,78 +266,87 @@ class PrinterFssProbe:
         stage1_accel_decel["peel_decel"] = target_accel
         kinematics.set_accel_decel(stage1_accel_decel)
 
-
-        segments = int(self.min_lift_distance / lift_segment_distance)
-        for i in range(1,segments):
+        # Slow accel ramp over the minimum peel distance. Previously the probe
+        # amount subtracted a hard-coded 0.2 mm instead of this ramp travel,
+        # so Full Lift commanded ~lift_amount + min_lift (e.g. 7 + 6.8 = 13.6).
+        segments = int(min_required / lift_segment_distance)
+        for i in range(1, segments):
             pos = position.copy()
-            pos[2] += i*lift_segment_distance
+            pos[2] += i * lift_segment_distance
             acc = saved_accel_decel.copy()
-            acc["peel_accel"] = min(target_accel,base_accel*2**i)
+            acc["peel_accel"] = min(target_accel, base_accel * 2**i)
             kinematics.set_accel_decel(acc)
-            self._move(pos,lift_speed)
-
+            self._move(pos, lift_speed)
 
         stage1_accel_decel["peel_accel"] = 1000
         kinematics.set_accel_decel(stage1_accel_decel)
 
+        pre_probe_z = self._get_position()[2]
+        pre_probe_travel = round(pre_probe_z - start_z, 4)
+        remaining_for_probe = round(lift_amount - pre_probe_travel, 4)
+
         print_time = toolhead.get_last_move_time()
 
-        if not self.mcu_probe.query_endstop(print_time):
-            pos = self._probe(lift_speed, lift_amount - stage1_lift_distance)
+        if remaining_for_probe > 0.1 and not self.mcu_probe.query_endstop(print_time):
+            probe_rel = self._probe(lift_speed, remaining_for_probe)
+            already_travelled = pre_probe_travel + probe_rel[2]
         else:
-            pos = [0.0,0.0,self.min_lift_distance]
+            # Peel already released during the ramp, or ramp consumed the lift.
+            already_travelled = pre_probe_travel
+            probe_rel = [0.0, 0.0, 0.0]
 
         kinematics.set_accel_decel(saved_accel_decel)
+        pos = [0.0, 0.0, already_travelled]
 
         if self.kinematic_mode == "minimal":
-            if pos[2] < self.min_lift_distance:
-                logging.info("Minimum lift distance not reached: %f required: %f", pos[2], self.min_lift_distance)
-                pos_actual = self._get_position()
-                remaining_move = self.min_lift_distance - pos[2]
-
+            if already_travelled < min_required:
+                logging.info(
+                    "Minimum lift distance not reached: %f required: %f",
+                    already_travelled, min_required)
+                remaining_move = min_required - already_travelled
                 if remaining_move > 0.1:
+                    pos_actual = self._get_position()
                     pos_actual[2] += remaining_move
                     self._move(pos_actual, lift_speed)
-                    pos[2] = self.min_lift_distance
+                    pos[2] = min_required
                     toolhead.wait_moves()
                 else:
                     logging.info("Skipping due to hysteresis")
 
         elif self.kinematic_mode == "full":
-            logging.info("Peel finished after %f", pos[2])
-            pos_actual = self._get_position()
-            already_travelled = stage1_lift_distance + pos[2]
+            logging.info("Peel finished after %f (pre-probe %f)",
+                         already_travelled, pre_probe_travel)
             remaining_move = lift_amount - already_travelled
 
             if remaining_move > 0.1:
-
                 kin = toolhead.get_kinematics()
                 current_accel_decel = kin.get_accel_decel()
                 new_accel_decel = current_accel_decel.copy()
                 new_accel_decel["peel_accel"] = new_accel_decel["peel_decel"]
                 kin.set_accel_decel(new_accel_decel)
 
-                if self.min_lift_distance - already_travelled > 0.1:
-                    remaining_min_lift_move = self.min_lift_distance - already_travelled
+                pos_actual = self._get_position()
 
-                    logging.info("Doing slow min lift first: %f mm",remaining_min_lift_move)
-
+                if min_required - already_travelled > 0.1:
+                    remaining_min_lift_move = min_required - already_travelled
+                    logging.info("Doing slow min lift first: %f mm",
+                                 remaining_min_lift_move)
                     pos_actual[2] += remaining_min_lift_move
                     remaining_move -= remaining_min_lift_move
                     self._move(pos_actual, lift_speed)
 
-
-                if self.full_lift_speed is None or self.full_lift_speed == 0 :
-                    speed = lift_speed*2
+                if self.full_lift_speed is None or self.full_lift_speed == 0:
+                    speed = lift_speed * 2
                 else:
                     speed = self.full_lift_speed
 
-                pos_actual[2] += remaining_move
-                self._move(pos_actual, speed)
+                if remaining_move > 0.1:
+                    pos_actual = self._get_position()
+                    pos_actual[2] += remaining_move
+                    self._move(pos_actual, speed)
 
                 kin.set_accel_decel(current_accel_decel)
                 pos[2] = lift_amount
-
                 toolhead.wait_moves()
             else:
                 logging.info("Skipping due to hysteresis")
@@ -377,12 +385,21 @@ class PrinterFssProbe:
         modulus_gpa = gcmd.get_float("MODULUS", above=0.) #from resin profile
         viscosity_cps = gcmd.get_float("VISCOSITY", above=0.) #from resin profile
 
-        if largest_surface_area_mm2 == 0.0:
-            largest_surface_area_mm2 = self.buildplate_area * 0.2
+        # Peel force scales with total exposed area, not the largest island.
+        # Many small islands (e.g. 1450 x ~5 mm²) previously under-lifted because
+        # only LARGEST_SURFACEAREA drove areaFactor.
+        area_for_ratio = total_surface_area_mm2
+        if area_for_ratio <= 0.0:
+            area_for_ratio = largest_surface_area_mm2
+        if area_for_ratio <= 0.0:
+            area_for_ratio = self.buildplate_area * 0.2
 
         stage1_max_speed = lift_speed / 2
         stage1_min_speed = lift_speed / 4
-        stage2_max_speed = self.full_lift_speed * 60
+        if self.full_lift_speed is None or self.full_lift_speed == 0:
+            stage2_max_speed = lift_speed * 2
+        else:
+            stage2_max_speed = self.full_lift_speed * 60
         stage2_min_speed = lift_speed / 2
 
         effective_resin_level = self._effective_resin_level(viscosity_cps)
@@ -395,14 +412,17 @@ class PrinterFssProbe:
         stage1_distance = min(lift_total - 1, max(1, round(lift_total / pow(3 * modulus_gpa, 2 / 3), 1)))
         stage2_distance = lift_total - stage1_distance
         time_helper = time.time()
-        logging.warning(f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance} | Took {time_helper-starttime}s")
+        logging.warning(
+            f"Smart Peel first calc run: S1D: {stage1_distance} | S2D: {stage2_distance} | "
+            f"AreaTotal: {total_surface_area_mm2} | AreaLargest: {largest_surface_area_mm2} | "
+            f"AreaUsed: {area_for_ratio} | Took {time_helper-starttime}s")
 
         if layer_position < effective_resin_level:
             speed = lift_speed/2
             #stage1_distance = max(stage1_distance, round(actual_lift_distance/2, 2))
 
         else:
-            areaRatio = largest_surface_area_mm2 / self.buildplate_area
+            areaRatio = area_for_ratio / self.buildplate_area
             areaFactor = pow(areaRatio, 1 / 4)
             minSpeed = max(stage1_max_speed, lift_speed * (modulus_gpa / 6 + 1/2))
             stage2_distance = round((1 + stage2_distance * areaFactor),1)
@@ -417,6 +437,16 @@ class PrinterFssProbe:
         stage2Speed = min(stage2_max_speed, stage2Speed)
 
         actual_lift_distance = stage1_distance + stage2_distance # recompute due to likely changes in previous code
+
+        # Minimum Peel Lift applies to Smart / Two-stage as well as Minimal/Full.
+        min_required = min(float(self.min_lift_distance), lift_total)
+        if actual_lift_distance < min_required:
+            deficit = round(min_required - actual_lift_distance, 1)
+            stage2_distance = round(stage2_distance + deficit, 1)
+            actual_lift_distance = round(stage1_distance + stage2_distance, 1)
+            logging.warning(
+                f"Smart Peel min-lift floor applied: +{deficit}mm stage2 → AL:{actual_lift_distance} "
+                f"(min={min_required})")
 
         #convert speeds to mm/s for klipper:
         stage1Speed = round(stage1Speed / 60, 2)
