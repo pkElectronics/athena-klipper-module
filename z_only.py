@@ -55,6 +55,7 @@ class ZonlyKinematics:
         self.axes_max = toolhead.Coord(0, 0, z_range[1], e=0.)
 
         self.block_downward_until_homed = False
+        self._homing_active = False
 
         self.gcode = self.printer.lookup_object('gcode')
 
@@ -122,17 +123,22 @@ class ZonlyKinematics:
         self.peel_decel = self.homing_accel_decel
         self.dip_decel = self.homing_accel_decel
 
-        homing_state.home_rails(
-            [self.z_rail],
-            [None, None, forcepos, None],
-            [None, None, hi.position_endstop, None]
-        )
-
-        self.peel_accel = self.save_peel_accel
-        self.dip_accel = self.save_dip_accel
-        self.peel_decel = self.save_peel_decel
-        self.dip_decel = self.save_dip_decel
-        self.block_downward_until_homed = False
+        # Homing itself must be allowed to travel downward even when a crash
+        # armed block_downward_until_homed. Clear the latch only after success.
+        self._homing_active = True
+        try:
+            homing_state.home_rails(
+                [self.z_rail],
+                [None, None, forcepos, None],
+                [None, None, hi.position_endstop, None]
+            )
+            self.block_downward_until_homed = False
+        finally:
+            self._homing_active = False
+            self.peel_accel = self.save_peel_accel
+            self.dip_accel = self.save_dip_accel
+            self.peel_decel = self.save_peel_decel
+            self.dip_decel = self.save_dip_decel
 
     def home(self, homing_state):
         # Only z axis homing is respected
@@ -154,8 +160,8 @@ class ZonlyKinematics:
         if not move.axes_d[2]:
             # Normal XY move - use defaults
             return
-        if (self.block_downward_until_homed and move.axes_d[2]
-                and move.start_pos[2] > move.end_pos[2]):
+        if (self.block_downward_until_homed and not self._homing_active
+                and move.axes_d[2] and move.start_pos[2] > move.end_pos[2]):
             raise move.move_error(
                 "Downward move blocked — home Z first")
         # Move with Z - update velocity and accel for slower Z axis
